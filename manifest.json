@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Aurora Tab — Ultimate Glass New Tab",
+  "version": "2.2.0",
+  "description": "A premium visionOS/iOS-inspired new tab dashboard with live wallpapers, draggable widgets, command palette, themes and profiles.",
+  "chrome_url_overrides": {
+    "newtab": "newtab.html"
+  },
+  "permissions": ["storage", "unlimitedStorage"],
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}

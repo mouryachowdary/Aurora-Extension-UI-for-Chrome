@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>New Tab</title>
+    <link rel="stylesheet" href="newtab.css" />
+  </head>
+  <body data-theme="dark">
+    <!-- Wallpaper layers -->
+    <div id="wp-img" class="wallpaper"></div>
+    <video id="wp-video" class="wallpaper hidden" autoplay muted loop playsinline preload="auto"></video>
+    <div id="wp-tint" class="wallpaper-tint"></div>
+    <div id="drop-overlay" class="drop-overlay hidden">
+      <div class="drop-card">Drop image, video or GIF to set as wallpaper</div>
+    </div>
+
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="topbar-left">
+        <button class="pill-btn" data-toggle="todo-panel" title="Tasks">
+          <span class="ico ico-check">✓</span><span>Tasks</span>
+        </button>
+        <button class="pill-btn" data-toggle="notes-panel" title="Notes">
+          <span class="ico ico-note">📝</span><span>Notes</span>
+        </button>
+      </div>
+      <div class="topbar-center">
+        <div id="profile-switcher" class="profile-switcher">
+          <button id="profile-btn" class="pill-btn ghost">
+            <span id="profile-dot" class="profile-dot"></span>
+            <span id="profile-name">Personal</span>
+            <span class="caret">▾</span>
+          </button>
+          <div id="profile-menu" class="dropdown hidden"></div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" data-toggle="settings-panel" title="Settings">⚙</button>
+        <button class="icon-btn" id="edit-mode-btn" title="Edit layout">✥</button>
+      </div>
+    </div>
+
+    <!-- Search -->
+    <div class="search-wrap glass">
+      <span class="search-ico">🔍</span>
+      <input id="search" type="text" placeholder="Search the web..." autocomplete="off" />
+      <span class="search-hint">↵</span>
+    </div>
+
+    <!-- Widget canvas -->
+    <main id="canvas" class="canvas"></main>
+
+    <!-- Dock -->
+    <div class="dock glass">
+      <div id="shortcuts" class="shortcuts"></div>
+      <button id="add-shortcut" class="dock-item add" title="Add shortcut">+</button>
+    </div>
+
+    <!-- Panels -->
+    <aside id="notes-panel" class="panel hidden">
+      <header><h2>Notes</h2><button data-close="notes-panel" class="close">×</button></header>
+      <textarea id="notes-text" placeholder="Write anything... (markdown supported)"></textarea>
+    </aside>
+
+    <aside id="todo-panel" class="panel hidden">
+      <header><h2>Tasks</h2><button data-close="todo-panel" class="close">×</button></header>
+      <div class="todo-add">
+        <input id="todo-input" placeholder="New task..." />
+        <button id="todo-add-btn" class="btn-primary">Add</button>
+      </div>
+      <ul id="todo-list"></ul>
+    </aside>
+
+    <aside id="settings-panel" class="panel wide hidden">
+      <header><h2>Settings</h2><button data-close="settings-panel" class="close">×</button></header>
+
+      <div class="tabs">
+        <button class="tab active" data-tab="appearance">Appearance</button>
+        <button class="tab" data-tab="wallpaper">Wallpaper</button>
+        <button class="tab" data-tab="widgets">Widgets</button>
+        <button class="tab" data-tab="profile">Profile</button>
+        <button class="tab" data-tab="data">Data</button>
+      </div>
+
+      <section data-pane="appearance">
+        <label>Theme
+          <select id="set-theme">
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="auto">Auto (system)</option>
+          </select>
+        </label>
+        <label>Accent color
+          <input id="set-accent" type="color" value="#7c3aed" />
+        </label>
+        <label>Name gradient
+          <span class="row"><input id="set-name-from" type="color" value="#60a5fa" /><input id="set-name-to" type="color" value="#f472b6" /></span>
+        </label>
+        <label>Glass blur <span class="val" id="val-blur"></span>
+          <input id="set-blur" type="range" min="0" max="40" step="1" />
+        </label>
+        <label>Glass opacity <span class="val" id="val-opacity"></span>
+          <input id="set-opacity" type="range" min="10" max="90" step="1" />
+        </label>
+        <label>Border radius <span class="val" id="val-radius"></span>
+          <input id="set-radius" type="range" min="6" max="36" step="1" />
+        </label>
+        <label>Font
+          <select id="set-font">
+            <option value="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif">SF Pro / System</option>
+            <option value="'Inter', sans-serif">Inter</option>
+            <option value="'Space Grotesk', sans-serif">Space Grotesk</option>
+            <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+            <option value="Georgia, serif">Georgia</option>
+          </select>
+        </label>
+        <label class="row inline"><input id="set-minimal" type="checkbox" /> Minimalist mode (hide widgets, keep clock + search)</label>
+        <label>Search engine
+          <select id="set-engine">
+            <option value="https://www.google.com/search?q=">Google</option>
+            <option value="https://www.bing.com/search?q=">Bing</option>
+            <option value="https://duckduckgo.com/?q=">DuckDuckGo</option>
+            <option value="https://search.brave.com/search?q=">Brave</option>
+            <option value="https://www.youtube.com/results?search_query=">YouTube</option>
+            <option value="https://www.perplexity.ai/search?q=">Perplexity</option>
+          </select>
+        </label>
+      </section>
+
+      <section data-pane="wallpaper" class="hidden wallpaper-manager">
+        <div id="wp-current-preview" class="wp-current-preview">
+          <div class="wp-preview-media"></div>
+          <div class="wp-preview-info"><strong>Default Aurora</strong><span>Gradient background</span></div>
+        </div>
+
+        <div class="wallpaper-actions">
+          <label class="upload-tile">Upload wallpaper
+            <input id="set-wp-file" type="file" accept=".jpg,.jpeg,.png,.webp,.gif,.mp4,.webm,image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" />
+          </label>
+          <button id="remove-wp" class="btn-ghost">Remove current</button>
+          <button id="reset-wp" class="btn-ghost">Reset default</button>
+        </div>
+
+        <label>Wallpaper mode
+          <select id="set-wp-type">
+            <option value="image">Image / GIF</option>
+            <option value="video">Live video</option>
+            <option value="gradient">Gradient only</option>
+          </select>
+        </label>
+
+        <div class="video-controls">
+          <button id="wp-video-toggle" class="btn-ghost">Play / Pause</button>
+          <label class="row inline"><input id="set-video-muted" type="checkbox" checked /> Muted</label>
+          <label>Volume <span class="val" id="val-volume"></span>
+            <input id="set-volume" type="range" min="0" max="100" step="1" />
+          </label>
+        </div>
+
+        <label>Darken overlay <span class="val" id="val-tint"></span>
+          <input id="set-tint" type="range" min="0" max="90" step="1" />
+        </label>
+        <label>Brightness <span class="val" id="val-bright"></span>
+          <input id="set-bright" type="range" min="30" max="150" step="1" />
+        </label>
+        <label>Wallpaper blur <span class="val" id="val-media-blur"></span>
+          <input id="set-media-blur" type="range" min="0" max="24" step="1" />
+        </label>
+        <label>Wallpaper opacity <span class="val" id="val-wp-opacity"></span>
+          <input id="set-wp-opacity" type="range" min="40" max="100" step="1" />
+        </label>
+        <label>Video playback speed <span class="val" id="val-speed"></span>
+          <input id="set-speed" type="range" min="25" max="200" step="5" />
+        </label>
+
+        <h3>Collections & favorites</h3>
+        <div class="row"><input id="wp-collection-name" type="text" placeholder="Collection name" /><button id="wp-assign-collection" class="btn-primary">Save</button></div>
+        <label>Show collection
+          <select id="wp-collection-filter"></select>
+        </label>
+        <label class="row inline"><input id="set-wp-rotate" type="checkbox" /> Auto-rotate collection</label>
+        <label>Rotate every (minutes)
+          <input id="set-wp-rotate-mins" type="number" min="1" value="30" />
+        </label>
+        <div id="wp-collection" class="wp-grid"></div>
+      </section>
+
+      <section data-pane="widgets" class="hidden">
+        <p class="muted">Toggle which widgets appear on your dashboard. Click ✥ in the top bar to drag and resize them.</p>
+        <div id="widget-toggles" class="widget-toggles"></div>
+      </section>
+
+      <section data-pane="profile" class="hidden">
+        <label>Display name <input id="set-name" type="text" placeholder="Your Name" /></label>
+        <label class="row inline"><input id="set-24h" type="checkbox" /> 24-hour clock</label>
+        <label class="row inline"><input id="set-show-seconds" type="checkbox" checked /> Show seconds</label>
+        <label>Weather location (city)
+          <span class="row"><input id="set-weather-city" type="text" placeholder="e.g. Tokyo" /><button id="set-weather-go" class="btn-ghost">Save</button></span>
+        </label>
+        <h3>Profiles</h3>
+        <div id="profile-list"></div>
+        <div class="row" style="margin-top:8px"><input id="new-profile-name" type="text" placeholder="New profile name" /><button id="add-profile" class="btn-primary">Add</button></div>
+      </section>
+
+      <section data-pane="data" class="hidden">
+        <button id="export-btn" class="btn-ghost">Export settings (JSON)</button>
+        <button id="import-btn" class="btn-ghost">Import settings</button>
+        <input id="import-file" type="file" accept="application/json" hidden />
+        <h3>Custom CSS</h3>
+        <textarea id="set-custom-css" placeholder="/* advanced: inject your own CSS */" rows="6"></textarea>
+        <button id="apply-css" class="btn-ghost">Apply CSS</button>
+        <h3 style="color:#fca5a5">Danger zone</h3>
+        <button id="reset-all" class="btn-danger">Reset this profile</button>
+      </section>
+    </aside>
+
+    <!-- Command palette removed -->
+
+    <!-- Shortcut modal -->
+    <div id="shortcut-modal" class="modal hidden">
+      <div class="modal-card glass-strong">
+        <h3 id="sc-modal-title">Add shortcut</h3>
+        <label>Name <input id="sc-name" type="text" /></label>
+        <label>URL <input id="sc-url" type="text" placeholder="https://..." /></label>
+        <label>Color <input id="sc-color" type="color" value="#3b82f6" /></label>
+        <div class="row right">
+          <button id="sc-delete" class="btn-danger hidden">Delete</button>
+          <button id="sc-cancel" class="btn-ghost">Cancel</button>
+          <button id="sc-save" class="btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast-root" class="toast-root"></div>
+
+    <script src="newtab.js"></script>
+  </body>
+</html>

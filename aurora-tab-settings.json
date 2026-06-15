@@ -1,0 +1,135 @@
+{
+  "activeProfile": "Mourya Monavarty",
+  "profiles": {
+    "Mourya Monavarty": {
+      "color": "#7c3aed",
+      "data": {
+        "accent": "#7c3aed",
+        "blur": 19,
+        "customCss": "",
+        "engine": "https://www.google.com/search?q=",
+        "font": "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif",
+        "minimal": false,
+        "nameFrom": "#60a5fa",
+        "nameTo": "#f472b6",
+        "notes": "",
+        "opacity": 50,
+        "radius": 36,
+        "shortcuts": [
+          {
+            "color": "#3b82f6",
+            "name": "Portfolio",
+            "url": "https://mouryamonavarty.vercel.app/"
+          },
+          {
+            "name": "LinkedIn",
+            "url": "https://www.linkedin.com/in/mourya-monavarty-0b3460166/",
+            "color": "#3b82f6"
+          }
+        ],
+        "showSeconds": true,
+        "theme": "dark",
+        "todos": [],
+        "use24h": false,
+        "user": "MOURYA MONAVARTY",
+        "weatherCity": "",
+        "weatherCoords": null,
+        "widgets": {
+          "calendar": {
+            "enabled": false,
+            "h": 220,
+            "id": "calendar",
+            "w": 240,
+            "x": 1632,
+            "y": 0
+          },
+          "clock": {
+            "enabled": true,
+            "h": 138,
+            "id": "clock",
+            "w": 413,
+            "x": 0,
+            "y": 0
+          },
+          "greeting": {
+            "enabled": true,
+            "h": 100,
+            "id": "greeting",
+            "w": 666,
+            "x": 491,
+            "y": 0
+          },
+          "links": {
+            "enabled": false,
+            "h": 200,
+            "id": "links",
+            "w": 280,
+            "x": 740,
+            "y": 260
+          },
+          "pomodoro": {
+            "enabled": false,
+            "h": 180,
+            "id": "pomodoro",
+            "w": 220,
+            "x": 240,
+            "y": 160
+          },
+          "quote": {
+            "enabled": true,
+            "h": 100,
+            "id": "quote",
+            "w": 390,
+            "x": 4,
+            "y": 143
+          },
+          "todos": {
+            "enabled": false,
+            "h": 240,
+            "id": "todos",
+            "w": 280,
+            "x": 740,
+            "y": 0
+          },
+          "weather": {
+            "enabled": false,
+            "h": 180,
+            "id": "weather",
+            "w": 220,
+            "x": 0,
+            "y": 160
+          }
+        },
+        "wp": {
+          "type": "video",
+          "src": "idb:wp_1781552764133_guzjsrciit",
+          "tint": 10,
+          "brightness": 109,
+          "mediaBlur": 0,
+          "opacity": 100,
+          "speed": 100,
+          "volume": 0,
+          "muted": true,
+          "rotate": false,
+          "rotateMins": 30,
+          "collectionFilter": "All",
+          "collection": [
+            {
+              "key": "wp_1781552764133_guzjsrciit",
+              "type": "video",
+              "name": "zenitsu-wisteria-thunder-breathing-kimetsu-no-yaiba-moewalls-com.mp4",
+              "size": 30235752,
+              "mime": "video/mp4",
+              "createdAt": 1781552764133,
+              "favorite": false,
+              "collectionName": "Uploads",
+              "signature": "zenitsu-wisteria-thunder-breathing-kimetsu-no-yaiba-moewalls-com.mp4|30235752|1781546081429"
+            }
+          ],
+          "activeIdx": 0
+        }
+      },
+      "name": "Mourya Monavarty"
+    }
+  }
+}
