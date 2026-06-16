@@ -62,12 +62,13 @@ const idb = {
 const DEFAULT_WIDGETS = {
   greeting: { id: "greeting", enabled: true, x: 0,   y: 0,   w: 420, h: 140 },
   clock:    { id: "clock",    enabled: true, x: 440, y: 0,   w: 320, h: 140 },
-  weather:  { id: "weather",  enabled: true, x: 0,   y: 160, w: 220, h: 180 },
+  weather:  { id: "weather",  enabled: false, x: 0,   y: 160, w: 220, h: 180 },
   pomodoro: { id: "pomodoro", enabled: true, x: 240, y: 160, w: 220, h: 180 },
   calendar: { id: "calendar", enabled: true, x: 480, y: 160, w: 240, h: 220 },
   quote:    { id: "quote",    enabled: false, x: 0,  y: 360, w: 420, h: 130 },
-  todos:    { id: "todos",    enabled: true, x: 740, y: 0,   w: 280, h: 240 },
+  todos:    { id: "todos",    enabled: false, x: 740, y: 0,   w: 280, h: 240 },
   links:    { id: "links",    enabled: false, x: 740, y: 260, w: 280, h: 200 },
+  games:    { id: "games",    enabled: true, x: 740, y: 260, w: 280, h: 200 },
 };
 const DEFAULT_PROFILE = () => ({
   name: "Personal",
@@ -98,6 +99,9 @@ const DEFAULT_PROFILE = () => ({
     ],
     todos: [],
     notes: "",
+    pomoDuration: 25,
+    topbarOrder: ["todo","notes"],
+    calendar: { viewYear: new Date().getFullYear(), viewMonth: new Date().getMonth() },
   },
 });
 
@@ -115,6 +119,23 @@ async function init() {
   await render();
   ensureWatermark();
   bindGlobalEvents();
+}
+
+async function render() {
+  applyTheme();
+  renderProfileSwitcher();
+  // permanently hide weather and mini todos widgets per configuration
+  if (cur().widgets && cur().widgets.weather) cur().widgets.weather.enabled = false;
+  if (cur().widgets && cur().widgets.todos) cur().widgets.todos.enabled = false;
+  renderWidgets();
+  renderShortcuts();
+  renderSettings();
+  renderTodos();
+  renderNotes();
+  await loadWallpaper();
+  startTimers();
+  startWallpaperRotation();
+  postRenderInit();
 }
 
 // ---------- Persistent watermark (hardcoded, resilient at runtime) ----------
@@ -186,6 +207,7 @@ async function render() {
   await loadWallpaper();
   startTimers();
   startWallpaperRotation();
+  postRenderInit();
 }
 
 // ---------- Theme / appearance ----------
@@ -485,12 +507,13 @@ function renderWidgets() {
 function renderWidgetBody(id) {
   switch (id) {
     case "clock":   return `<div><span class="time" id="w-time">--:--</span><span class="ampm" id="w-ampm"></span></div><div class="date" id="w-date">—</div>`;
-    case "greeting":return `<div class="greet" id="w-greet">Hello</div><div class="name" id="w-name" contenteditable="true" spellcheck="false" data-placeholder="Click to set your name">there</div>`;
+    case "greeting":return `<div class="greet" id="w-greet">Hello</div><div class="name" id="w-name">there</div>`;
     case "weather": return `<div class="widget-title">Weather</div><div class="ico-big" id="w-wico">⛅</div><div class="temp" id="w-temp">--°</div><div class="cond" id="w-cond">—</div><div class="loc" id="w-loc">Set city in settings</div>`;
-    case "pomodoro":return `<div class="widget-title">Focus</div><div class="ring" id="w-pomo">25:00</div><div class="row"><button data-pomo="start">Start</button><button data-pomo="pause">Pause</button><button data-pomo="reset">Reset</button></div>`;
+    case "pomodoro":return `<div class="widget-title">Focus</div><div class="ring" id="w-pomo">25:00</div><div style="margin-top:8px">Duration <input id="pomo-duration" type="number" min="1" max="180" style="width:80px;margin-left:8px;"/></div><div class="row"><button data-pomo="start">Start</button><button data-pomo="pause">Pause</button><button data-pomo="reset">Reset</button></div>`;
     case "calendar":return `<div class="widget-title">Calendar</div><h4 id="w-cal-h"></h4><table id="w-cal-t"></table>`;
     case "quote":   return `<div class="widget-title">Today</div><div class="q" id="w-q">—</div><div class="a" id="w-a"></div>`;
     case "todos":   return `<div class="widget-title">Tasks</div><div class="mini-add"><input id="w-mini-todo-input" placeholder="New task..." /><button id="w-mini-todo-add">+</button></div><ul class="mini-list" id="w-mini-todo"></ul>`;
+    case "games":   return `<div class="widget-title">Games</div><div style="display:flex;flex-direction:column;gap:8px"><button id="game-tictactoe" class="btn-ghost">Tic-Tac-Toe</button><button id="game-clicker" class="btn-ghost">Clicker</button></div><div id="game-root" style="margin-top:8px"></div>`;
     case "links":   return `<div class="widget-title">Quick Links</div><div class="grid" id="w-links"></div>`;
   }
   return "";
@@ -566,37 +589,41 @@ function updateClock() {
     g.textContent = hr < 5 ? "Good night" : hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : hr < 21 ? "Good evening" : "Good night";
   }
   const n = document.getElementById("w-name");
-  if (n && document.activeElement !== n) n.textContent = c.user || "there";
-  if (n && !n._bound) {
-    n._bound = true;
-    n.addEventListener("focus", () => { if (n.textContent === "there") n.textContent = ""; });
-    n.addEventListener("blur", () => {
-      const v = n.textContent.trim();
-      cur().user = v;
-      n.textContent = v || "there";
-      save();
-    });
-    n.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); n.blur(); } });
-  }
+  if (n) n.textContent = c.user || "there";
 }
 
 function renderCalendar() {
   const wrap = document.getElementById("w-cal-t");
   const head = document.getElementById("w-cal-h");
   if (!wrap) return;
+  const prefs = cur().calendar || {};
   const now = new Date();
-  head.textContent = now.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const first = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
-  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const viewYear = prefs.viewYear ?? now.getFullYear();
+  const viewMonth = prefs.viewMonth ?? now.getMonth();
+  head.textContent = new Date(viewYear, viewMonth, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const first = new Date(viewYear, viewMonth, 1).getDay();
+  const days = new Date(viewYear, viewMonth + 1, 0).getDate();
   let html = "<thead><tr>" + ["S","M","T","W","T","F","S"].map(d => `<th>${d}</th>`).join("") + "</tr></thead><tbody><tr>";
   for (let i = 0; i < first; i++) html += "<td></td>";
   for (let d = 1; d <= days; d++) {
-    const isToday = d === now.getDate();
-    html += `<td class="${isToday ? "today" : ""}">${d}</td>`;
+    const isToday = viewYear === now.getFullYear() && viewMonth === now.getMonth() && d === now.getDate();
+    html += `<td class="${isToday ? "today" : ""}" data-cal-day="${d}">${d}</td>`;
     if ((first + d) % 7 === 0) html += "</tr><tr>";
   }
   html += "</tr></tbody>";
   wrap.innerHTML = html;
+
+  // calendar navigation
+  const calWrap = wrap.parentElement;
+  if (calWrap && !calWrap._navBound) {
+    calWrap._navBound = true;
+    const navPrev = document.createElement('button'); navPrev.textContent = '◀'; navPrev.className='icon-btn'; navPrev.style.marginRight='8px';
+    const navNext = document.createElement('button'); navNext.textContent = '▶'; navNext.className='icon-btn'; navNext.style.marginLeft='8px';
+    const navRow = document.createElement('div'); navRow.style.display='flex'; navRow.style.justifyContent='center'; navRow.style.marginTop='8px'; navRow.appendChild(navPrev); navRow.appendChild(navNext);
+    calWrap.appendChild(navRow);
+    navPrev.addEventListener('click', () => { const p = cur().calendar; p.viewMonth--; if (p.viewMonth<0){p.viewMonth=11;p.viewYear--;} save(); renderCalendar(); });
+    navNext.addEventListener('click', () => { const p = cur().calendar; p.viewMonth++; if (p.viewMonth>11){p.viewMonth=0;p.viewYear++;} save(); renderCalendar(); });
+  }
 }
 
 const QUOTES = [
@@ -660,10 +687,37 @@ function pomoTick() {
 document.addEventListener("click", e => {
   const p = e.target.dataset.pomo;
   if (!p) return;
-  if (p === "start") { if (!pomo.running) { pomo.running = true; pomo.interval = setInterval(pomoTick, 1000); } }
-  if (p === "pause") { pomo.running = false; clearInterval(pomo.interval); }
-  if (p === "reset") { pomo.running = false; clearInterval(pomo.interval); pomo.remaining = 25*60; pomoTick(); }
+  if (p === "start") {
+    if (!pomo.running) {
+      pomo.running = true;
+      clearInterval(pomo.interval);
+      pomoTick();
+      pomo.interval = setInterval(pomoTick, 1000);
+    }
+  } else if (p === "pause") {
+    pomo.running = false; clearInterval(pomo.interval);
+  } else if (p === "reset") {
+    pomo.running = false; clearInterval(pomo.interval);
+    pomo.remaining = (cur().pomoDuration || 25) * 60; pomoTick(); save();
+  }
 });
+
+
+// Initialize pomodoro controls after render
+function initPomodoroBindings() {
+  const dur = document.getElementById("pomo-duration");
+  if (dur) {
+    dur.value = cur().pomoDuration || 25;
+    dur.addEventListener("change", () => {
+      const v = Math.max(1, Math.min(180, +dur.value || 25));
+      cur().pomoDuration = v; save();
+      pomo.remaining = v * 60; pomoTick();
+    });
+  }
+  // ensure display
+  pomo.remaining = (cur().pomoDuration || 25) * 60;
+  pomoTick();
+}
 
 function renderMiniTodos() {
   const el = document.getElementById("w-mini-todo");
@@ -716,6 +770,12 @@ function startTimers() {
   updateClock();
 }
 
+// after render run initializers for widgets
+function postRenderInit(){
+  initPomodoroBindings();
+  initGamesBindings();
+}
+
 // ---------- Shortcuts dock ----------
 function renderShortcuts() {
   const el = document.getElementById("shortcuts");
@@ -753,6 +813,29 @@ function renderShortcuts() {
   });
   renderQuickLinks();
 }
+
+// Games bindings
+function initGamesBindings(){
+  const t = document.getElementById('game-tictactoe');
+  const c = document.getElementById('game-clicker');
+  const root = document.getElementById('game-root');
+  if (!root) return;
+  root.innerHTML = '';
+  if (t) t.addEventListener('click', ()=> renderTicTacToe(root));
+  if (c) c.addEventListener('click', ()=> renderClicker(root));
+}
+
+function renderTicTacToe(root){
+  const state = Array(9).fill(''); let turn='X';
+  root.innerHTML = '<div id="ttt" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;"></div><div style="margin-top:8px"><button id="ttt-reset" class="btn-ghost">Reset</button></div>';
+  const board = root.querySelector('#ttt');
+  function draw(){ board.innerHTML = state.map((v,i)=>`<button data-i="${i}" style="padding:18px;font-size:20px;border-radius:8px">${v}</button>`).join('');
+    board.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{ const i=+b.dataset.i; if(state[i])return; state[i]=turn; turn = turn==='X'?'O':'X'; draw(); checkWin(); })); }
+  function checkWin(){ const combos=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]; for(const c of combos){const [a,b,c1]=c; if(state[a] && state[a]===state[b] && state[b]===state[c1]){ root.querySelectorAll('#ttt button')[a].style.background='var(--accent)'; root.querySelectorAll('#ttt button')[b].style.background='var(--accent)'; root.querySelectorAll('#ttt button')[c1].style.background='var(--accent)'; return; }} }
+  draw(); root.querySelector('#ttt-reset').addEventListener('click', ()=>{ for(let i=0;i<9;i++)state[i]=''; turn='X'; draw(); });
+}
+
+function renderClicker(root){ root.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div id="click-count" style="font-size:24px">0</div><button id="click-btn" class="btn-primary">Click me</button></div>`; let count=0; root.querySelector('#click-btn').addEventListener('click', ()=>{ count++; root.querySelector('#click-count').textContent = count; }); }
 let scEditIdx = null;
 function openShortcutModal(idx) {
   scEditIdx = idx;
@@ -829,6 +912,17 @@ function renderSettings() {
     cur().widgets[e.target.dataset.widgetToggle].enabled = e.target.checked;
     save(); renderWidgets();
   }));
+
+  // expose controls for pomodoro duration in settings
+  if (!document.getElementById('pomo-duration-settings')) {
+    const pane = document.querySelector('[data-pane="widgets"]');
+    if (pane) {
+      const div = document.createElement('div'); div.innerHTML = `<label>Pomodoro default (minutes) <input id="pomo-duration-settings" type="number" min="1" max="180" style="width:100px;margin-left:8px;"/></label>`;
+      pane.appendChild(div);
+      const inp = document.getElementById('pomo-duration-settings'); inp.value = cur().pomoDuration || 25;
+      inp.addEventListener('change', ()=>{ cur().pomoDuration = Math.max(1, Math.min(180, +inp.value||25)); save(); });
+    }
+  }
 
   // profiles list
   const pl = document.getElementById("profile-list");
@@ -983,6 +1077,31 @@ function bindGlobalEvents() {
     document.body.classList.toggle("edit-mode");
     document.getElementById("edit-mode-btn").classList.toggle("active");
   });
+
+  // make topbar buttons draggable and persist order
+  const topbarLeft = document.getElementById('topbar-left');
+  if (topbarLeft) {
+    let dragEl = null, startX = 0;
+    topbarLeft.querySelectorAll('[data-topbtn]').forEach(btn => {
+      btn.draggable = true;
+      btn.addEventListener('dragstart', e => { dragEl = btn; startX = e.clientX; btn.style.opacity = 0.6; });
+      btn.addEventListener('dragend', () => { if (dragEl) dragEl.style.opacity=''; dragEl = null; saveTopbarOrder(); });
+      btn.addEventListener('dragover', e => { e.preventDefault(); });
+      btn.addEventListener('drop', e => {
+        e.preventDefault(); if (!dragEl || dragEl === btn) return;
+        topbarLeft.insertBefore(dragEl, btn.nextSibling);
+      });
+    });
+    function saveTopbarOrder(){ const order = Array.from(topbarLeft.querySelectorAll('[data-topbtn]')).map(b=>b.dataset.topbtn); cur().topbarOrder = order; save(); }
+    // restore order from settings
+    const order = cur().topbarOrder || [];
+    if (order.length) {
+      order.forEach(id => {
+        const b = topbarLeft.querySelector(`[data-topbtn="${id}"]`);
+        if (b) topbarLeft.appendChild(b);
+      });
+    }
+  }
 
   // profile dropdown
   document.getElementById("profile-btn").addEventListener("click", e => {
