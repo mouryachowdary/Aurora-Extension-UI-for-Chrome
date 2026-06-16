@@ -97,10 +97,10 @@ const DEFAULT_PROFILE = () => ({
       { name: "YouTube", url: "https://youtube.com", color: "#ff0000" },
       { name: "Gmail", url: "https://mail.google.com", color: "#ea4335" },
     ],
-    todos: [],
+    tasks: [],
     notes: "",
     pomoDuration: 25,
-    topbarOrder: ["todo","notes"],
+    topbarOrder: ["tasks","notes"],
     calendar: { viewYear: new Date().getFullYear(), viewMonth: new Date().getMonth() },
   },
 });
@@ -116,10 +116,21 @@ function normalizeWidgets(data) {
   if (!data.widgets) data.widgets = JSON.parse(JSON.stringify(DEFAULT_WIDGETS));
 
   // Migrate legacy todos widget into tasks widget, if present.
+  if (data.tasks && !data.todos) {
+    data.tasks = Array.isArray(data.tasks) ? data.tasks : [];
+  }
+  if (data.todos) {
+    data.tasks = Array.isArray(data.todos) ? data.todos : [];
+    delete data.todos;
+  }
+
   if (data.widgets.todos) {
-    if (!data.widgets.tasks) {
-      data.widgets.tasks = { ...JSON.parse(JSON.stringify(DEFAULT_WIDGETS.tasks)), ...data.widgets.todos, id: 'tasks' };
-    }
+    data.widgets.tasks = {
+      ...JSON.parse(JSON.stringify(DEFAULT_WIDGETS.tasks)),
+      ...data.widgets.todos,
+      id: 'tasks',
+      enabled: true,
+    };
     delete data.widgets.todos;
   }
 
@@ -490,6 +501,7 @@ const WIDGET_LABELS = {
 };
 
 function renderWidgets() {
+  disconnectGameLayout();
   const canvas = document.getElementById("canvas");
   canvas.innerHTML = "";
   const widgets = cur().widgets;
@@ -524,7 +536,7 @@ function renderWidgetBody(id) {
     case "tasks":   return `<div class="widget-title">Tasks</div><div class="mini-add"><input id="w-task-input" placeholder="New task..." /><button id="w-task-add">+</button></div><ul class="mini-list" id="w-task-list"></ul>`;
     case "notes":   return `<div class="widget-title">Notes</div><textarea id="w-notes-text" class="widget-notes" placeholder="Write any notes..."></textarea>`;
     case "quote":   return `<div class="widget-title">Today</div><div class="q" id="w-q">—</div><div class="a" id="w-a"></div>`;
-    case "games":   return `<div class="widget-title">Games</div><div class="game-buttons"><button id="game-tictactoe" class="btn-ghost">Tic-Tac-Toe</button><button id="game-dino" class="btn-ghost">Dino Run</button><button id="game-flappy" class="btn-ghost">Flappy Bird</button></div><div id="game-root" class="game-root"></div>`;
+    case "games":   return `<div class="widget-title">Games</div><div class="game-buttons"><button id="game-color" class="btn-ghost">Color Picker</button><button id="game-reaction" class="btn-ghost">Reaction Time</button></div><div id="game-root" class="game-root"></div>`;
     case "links":   return `<div class="widget-title">Quick Links</div><div class="grid" id="w-links"></div>`;
   }
   return "";
@@ -569,6 +581,7 @@ function makeResizable(el, handle, model) {
       model.w = Math.min(Math.max(140, ow + ev.clientX - sx), b.w - model.x);
       model.h = Math.min(Math.max(100, oh + ev.clientY - sy), b.h - model.y);
       el.style.width = model.w + "px"; el.style.height = model.h + "px";
+      if (model.id === "games") refreshActiveGameLayout();
     };
     const up = () => {
       document.removeEventListener("mousemove", move);
@@ -867,8 +880,8 @@ function renderTasksWidget() {
   if (!list) return;
   
   const renderList = () => {
-    list.innerHTML = cur().todos.length
-      ? cur().todos.map((t, i) => `
+    list.innerHTML = cur().tasks.length
+      ? cur().tasks.map((t, i) => `
         <li class="task-item ${t.done ? 'task-done' : ''}" data-task="${i}">
           <label class="task-label">
             <input type="checkbox" class="task-checkbox" data-task-toggle="${i}" ${t.done ? 'checked' : ''}/>
@@ -883,7 +896,7 @@ function renderTasksWidget() {
   
   list.querySelectorAll('[data-task-toggle]').forEach(cb => cb.addEventListener('change', e => {
     const idx = +e.target.dataset.taskToggle;
-    cur().todos[idx].done = e.target.checked;
+    cur().tasks[idx].done = e.target.checked;
     const item = list.querySelector(`[data-task="${idx}"]`);
     if (item) item.classList.toggle('task-done', e.target.checked);
     save();
@@ -892,7 +905,7 @@ function renderTasksWidget() {
   list.querySelectorAll('[data-task-del]').forEach(btn => btn.addEventListener('click', e => {
     e.preventDefault();
     const idx = +btn.dataset.taskDel;
-    cur().todos.splice(idx, 1);
+    cur().tasks.splice(idx, 1);
     save();
     renderList();
     renderTasksWidget();
@@ -901,7 +914,7 @@ function renderTasksWidget() {
   if (add) {
     add.addEventListener('click', () => {
       if (!input || !input.value.trim()) return;
-      cur().todos.unshift({ text: input.value.trim(), done: false });
+      cur().tasks.unshift({ text: input.value.trim(), done: false });
       input.value = "";
       input.focus();
       save();
@@ -994,142 +1007,289 @@ function renderShortcuts() {
   renderQuickLinks();
 }
 
-// Games bindings
+// Games layout + bindings
+let gameLayoutObserver = null;
+let gameLayoutRaf = null;
+
+function getGamesWidgetEl() {
+  return document.querySelector(".widget.w-games");
+}
+
+function getGamesWidgetModel() {
+  return cur().widgets?.games;
+}
+
+function disconnectGameLayout() {
+  if (gameLayoutObserver) {
+    gameLayoutObserver.disconnect();
+    gameLayoutObserver = null;
+  }
+  if (gameLayoutRaf) {
+    cancelAnimationFrame(gameLayoutRaf);
+    gameLayoutRaf = null;
+  }
+}
+
+function measureGamesChrome(widgetEl, root) {
+  const widgetStyle = getComputedStyle(widgetEl);
+  const padY = parseFloat(widgetStyle.paddingTop) + parseFloat(widgetStyle.paddingBottom);
+  const title = widgetEl.querySelector(".widget-title");
+  const buttons = widgetEl.querySelector(".game-buttons");
+  const meta = root.querySelector(".game-meta-wrap");
+  const footer = root.querySelector(".game-footer");
+  return padY +
+    (title?.offsetHeight ?? 0) +
+    (buttons?.offsetHeight ?? 0) +
+    (meta?.offsetHeight ?? 0) +
+    (footer?.offsetHeight ?? 0) +
+    12;
+}
+
+function layoutGameGrid(root, { count = 0, minCell = 56 } = {}) {
+  if (!root) return;
+  const grid = root.querySelector(".color-grid, .reaction-grid");
+  if (!grid) return;
+
+  const gap = parseFloat(getComputedStyle(grid).gap) || 8;
+  const gridWidth = grid.clientWidth || root.clientWidth;
+  const cols = Math.max(2, Math.floor((gridWidth + gap) / (minCell + gap)));
+  grid.style.setProperty("--game-cols", String(cols));
+
+  const itemCount = count || grid.children.length || 1;
+  const rows = Math.max(1, Math.ceil(itemCount / cols));
+
+  const meta = root.querySelector(".game-meta-wrap");
+  const footer = root.querySelector(".game-footer");
+  const metaH = meta?.offsetHeight ?? 0;
+  const footerH = footer?.offsetHeight ?? 0;
+  const gridAvailH = Math.max(minCell, root.clientHeight - metaH - footerH - 8);
+  const cellH = Math.max(minCell, (gridAvailH - (rows - 1) * gap) / rows);
+  grid.style.setProperty("--game-cell-min", `${cellH}px`);
+}
+
+function scheduleGameLayout(root, opts) {
+  if (!root) return;
+  if (gameLayoutRaf) cancelAnimationFrame(gameLayoutRaf);
+  gameLayoutRaf = requestAnimationFrame(() => {
+    gameLayoutRaf = null;
+    const grid = root.querySelector(".color-grid, .reaction-grid");
+    const resolved = { ...opts };
+    if (!resolved.count && grid) resolved.count = grid.children.length;
+    layoutGameGrid(root, resolved);
+  });
+}
+
+function refreshActiveGameLayout() {
+  const root = document.getElementById("game-root");
+  if (root?.querySelector(".color-grid, .reaction-grid")) scheduleGameLayout(root, {});
+}
+
+function growGamesWidgetForReaction(root, level) {
+  const model = getGamesWidgetModel();
+  const widgetEl = getGamesWidgetEl();
+  if (!model || !widgetEl || !root) return;
+
+  const count = Math.min(18, 3 + level);
+  const gap = 8;
+  const minCell = 52;
+  const grid = root.querySelector(".reaction-grid");
+  const gridWidth = grid?.clientWidth || Math.max(140, model.w - 36);
+  const cols = Math.max(2, Math.floor((gridWidth + gap) / (minCell + gap)));
+  const rows = Math.ceil(count / cols);
+  const gridH = rows * minCell + (rows - 1) * gap;
+  const neededH = Math.ceil(measureGamesChrome(widgetEl, root) + gridH);
+  const b = canvasBounds();
+  const maxH = Math.max(100, b.h - model.y);
+  const newH = Math.min(Math.max(model.h, neededH), maxH);
+
+  if (newH !== model.h) {
+    model.h = newH;
+    widgetEl.style.height = `${newH}px`;
+    save();
+    requestAnimationFrame(() => scheduleGameLayout(root, { count, minCell }));
+  }
+}
+
+function bindGameLayout(root, getOpts) {
+  disconnectGameLayout();
+  const widgetEl = getGamesWidgetEl();
+  if (!widgetEl || !root) return;
+
+  const refresh = () => scheduleGameLayout(root, typeof getOpts === "function" ? getOpts() : getOpts);
+  gameLayoutObserver = new ResizeObserver(refresh);
+  gameLayoutObserver.observe(widgetEl);
+  gameLayoutObserver.observe(root);
+  refresh();
+}
+
 function initGamesBindings(){
-  const t = document.getElementById('game-tictactoe');
-  const d = document.getElementById('game-dino');
-  const f = document.getElementById('game-flappy');
+  const c = document.getElementById('game-color');
+  const r = document.getElementById('game-reaction');
   const root = document.getElementById('game-root');
   if (!root) return;
-  if (t) t.onclick = () => renderTicTacToe(root);
-  if (d) d.onclick = () => renderDino(root);
-  if (f) f.onclick = () => renderFlappy(root);
+  if (c) c.onclick = () => { disconnectGameLayout(); renderColorPicker(root); };
+  if (r) r.onclick = () => { disconnectGameLayout(); renderReactionGame(root); };
 }
 
-function renderTicTacToe(root){
-  const state = Array(9).fill(''); let turn='X';
-  root.innerHTML = '<div id="ttt" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;"></div><div style="margin-top:8px"><button id="ttt-reset" class="btn-ghost">Reset</button></div>';
-  const board = root.querySelector('#ttt');
-  function draw(){ board.innerHTML = state.map((v,i)=>`<button data-i="${i}" style="padding:18px;font-size:20px;border-radius:8px">${v}</button>`).join('');
-    board.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{ const i=+b.dataset.i; if(state[i])return; state[i]=turn; turn = turn==='X'?'O':'X'; draw(); checkWin(); })); }
-  function checkWin(){ const combos=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]]; for(const c of combos){const [a,b,c1]=c; if(state[a] && state[a]===state[b] && state[b]===state[c1]){ root.querySelectorAll('#ttt button')[a].style.background='var(--accent)'; root.querySelectorAll('#ttt button')[b].style.background='var(--accent)'; root.querySelectorAll('#ttt button')[c1].style.background='var(--accent)'; return; }} }
-  draw(); root.querySelector('#ttt-reset').addEventListener('click', ()=>{ for(let i=0;i<9;i++)state[i]=''; turn='X'; draw(); });
+function renderColorPicker(root) {
+  const colors = [
+    { name: 'Crimson', value: '#dc143c' },
+    { name: 'Forest Green', value: '#228b22' },
+    { name: 'Royal Blue', value: '#4169e1' },
+    { name: 'Gold', value: '#ffd700' },
+    { name: 'Coral', value: '#ff7f50' },
+    { name: 'Slate Gray', value: '#708090' },
+    { name: 'Teal', value: '#008080' },
+    { name: 'Magenta', value: '#ff00ff' },
+    { name: 'Orange', value: '#ff8c00' },
+    { name: 'Indigo', value: '#4b0082' },
+    { name: 'Sea Green', value: '#2e8b57' },
+    { name: 'Turquoise', value: '#40e0d0' }
+  ];
+
+  root.innerHTML = `
+    <div class="game-meta-wrap">
+      <div class="game-stat"><span>Target color</span><strong id="color-target"></strong></div>
+      <div class="game-stat"><span>Score</span><strong id="color-score">0</strong></div>
+    </div>
+    <div id="color-grid" class="color-grid"></div>
+    <div class="game-footer">
+      <div id="color-feedback" class="game-feedback">Pick the correct color swatch.</div>
+      <button id="color-reset" class="btn-ghost">Restart</button>
+    </div>
+  `;
+
+  const targetName = root.querySelector('#color-target');
+  const scoreEl = root.querySelector('#color-score');
+  const feedback = root.querySelector('#color-feedback');
+  const grid = root.querySelector('#color-grid');
+  let score = 0;
+  let current = null;
+
+  const shuffle = arr => arr.slice().sort(() => Math.random() - 0.5);
+  const pickWrongLabel = opt => {
+    const choices = colors.filter(c => c.value !== opt.value);
+    return choices[Math.floor(Math.random() * choices.length)].name;
+  };
+
+  const renderRound = () => {
+    const pool = shuffle(colors).slice(0, 6);
+    current = pool[Math.floor(Math.random() * pool.length)];
+    targetName.textContent = current.name;
+    scoreEl.textContent = score;
+    feedback.textContent = 'Select the swatch that matches the displayed color name.';
+    grid.innerHTML = pool.map(opt => {
+      const label = opt.value === current.value ? opt.name : pickWrongLabel(opt);
+      return `<button class="color-card" data-correct="${opt.value === current.value ? 1 : 0}" style="--swatch:${opt.value};"><span class="color-chip"></span><span class="color-label">${escapeHtml(label)}</span></button>`;
+    }).join('');
+    grid.querySelectorAll('.color-card').forEach(btn => btn.addEventListener('click', onColorPick));
+    scheduleGameLayout(root, { count: 6, minCell: 64 });
+  };
+
+  const onColorPick = e => {
+    const btn = e.currentTarget;
+    const correct = btn.dataset.correct === '1';
+    if (correct) {
+      score += 1;
+      feedback.textContent = 'Correct! Well done.';
+      feedback.classList.add('game-feedback-success');
+      setTimeout(() => feedback.classList.remove('game-feedback-success'), 500);
+    } else {
+      score = 0;
+      feedback.textContent = 'Wrong choice — score reset.';
+      feedback.classList.add('game-feedback-error');
+      setTimeout(() => feedback.classList.remove('game-feedback-error'), 500);
+    }
+    scoreEl.textContent = score;
+    renderRound();
+  };
+
+  root.querySelector('#color-reset').onclick = () => {
+    score = 0;
+    renderRound();
+  };
+
+  bindGameLayout(root, () => ({ count: 6, minCell: 64 }));
+  renderRound();
 }
 
-function renderDino(root) {
-  root.innerHTML = `<div class="dino-scene"><div class="dino-player" id="dino-player"></div><div class="dino-obstacle" id="dino-obstacle"></div><div class="dino-ground"></div><div class="game-ui"><div><span id="dino-score">0</span><span id="dino-level">Level 1</span></div><div id="dino-status">Tap to run</div><button id="dino-start" class="btn-ghost">Start</button></div></div>`;
-  initPremiumGame(root, 'dino');
-}
+function renderReactionGame(root) {
+  root.innerHTML = `
+    <div class="game-meta-wrap">
+      <div class="game-stat"><span>Score</span><strong id="reaction-score">0</strong></div>
+      <div class="game-stat"><span>Level</span><strong id="reaction-level">1</strong></div>
+    </div>
+    <div id="reaction-grid" class="reaction-grid"></div>
+    <div class="game-footer">
+      <div id="reaction-status" class="game-feedback">Click the highlighted box before it disappears.</div>
+      <button id="reaction-start" class="btn-ghost">Start</button>
+    </div>
+  `;
 
-function renderFlappy(root) {
-  root.innerHTML = `<div class="flappy-scene"><div class="flappy-bird" id="flappy-bird"></div><div class="flappy-pipe flappy-pipe-top" id="flappy-pipe-top"></div><div class="flappy-pipe flappy-pipe-bottom" id="flappy-pipe-bottom"></div><div class="flappy-cloud flappy-cloud-1"></div><div class="flappy-cloud flappy-cloud-2"></div><div class="game-ui"><div><span id="flappy-score">0</span><span id="flappy-level">Level 1</span></div><div id="flappy-status">Tap to fly</div><button id="flappy-start" class="btn-ghost">Start</button></div></div>`;
-  initPremiumGame(root, 'flappy');
-}
-
-function initPremiumGame(root, mode) {
-  const scene = root.querySelector(mode === 'flappy' ? '.flappy-scene' : '.dino-scene');
-  const player = root.querySelector(mode === 'flappy' ? '#flappy-bird' : '#dino-player');
-  const obstacle = root.querySelector(mode === 'flappy' ? '#flappy-pipe-top' : '#dino-obstacle');
-  const obstacleBottom = mode === 'flappy' ? root.querySelector('#flappy-pipe-bottom') : null;
-  const scoreEl = root.querySelector(mode === 'flappy' ? '#flappy-score' : '#dino-score');
-  const levelEl = root.querySelector(mode === 'flappy' ? '#flappy-level' : '#dino-level');
-  const status = root.querySelector(mode === 'flappy' ? '#flappy-status' : '#dino-status');
-  const start = root.querySelector(mode === 'flappy' ? '#flappy-start' : '#dino-start');
-  let interval = null;
-  let y = mode === 'flappy' ? 70 : 0;
-  let vy = 0;
-  let obstacleX = 100;
-  let gap = mode === 'flappy' ? 70 : 20;
+  const scoreEl = root.querySelector('#reaction-score');
+  const levelEl = root.querySelector('#reaction-level');
+  const status = root.querySelector('#reaction-status');
+  const grid = root.querySelector('#reaction-grid');
+  const start = root.querySelector('#reaction-start');
   let score = 0;
   let level = 1;
-  let speed = 2.2;
+  let activeIndex = -1;
+  let timeoutId = null;
+  let running = false;
 
-  const reset = () => {
-    clearInterval(interval);
-    interval = null;
-    y = mode === 'flappy' ? 70 : 0;
-    vy = 0;
-    obstacleX = 100;
-    gap = mode === 'flappy' ? 70 : 20;
+  const createGrid = () => {
+    const count = Math.min(18, 3 + level);
+    grid.innerHTML = Array.from({ length: count }, (_, i) => `<button class="reaction-box" data-index="${i}"></button>`).join('');
+    grid.querySelectorAll('.reaction-box').forEach(btn => btn.addEventListener('click', onBoxClick));
+    growGamesWidgetForReaction(root, level);
+    scheduleGameLayout(root, { count, minCell: 52 });
+  };
+
+  const highlightNext = () => {
+    const boxes = Array.from(grid.querySelectorAll('.reaction-box'));
+    if (!boxes.length) return endGame('No boxes available. Restart to play again.');
+    boxes.forEach(b => b.classList.remove('active'));
+    activeIndex = Math.floor(Math.random() * boxes.length);
+    boxes[activeIndex].classList.add('active');
+    status.textContent = 'Click the highlighted box now!';
+    timeoutId = setTimeout(() => endGame('Too slow! Game over.'), Math.max(500, 1200 - level * 35));
+  };
+
+  const onBoxClick = e => {
+    if (!running) return;
+    const idx = +e.currentTarget.dataset.index;
+    if (idx !== activeIndex) return;
+    clearTimeout(timeoutId);
+    score += 1;
+    level += 1;
+    scoreEl.textContent = score;
+    levelEl.textContent = level;
+    createGrid();
+    highlightNext();
+  };
+
+  const endGame = message => {
+    running = false;
+    status.textContent = message;
+    start.textContent = 'Restart';
+    grid.querySelectorAll('.reaction-box').forEach(b => b.classList.remove('active'));
+    clearTimeout(timeoutId);
+  };
+
+  bindGameLayout(root, () => ({ count: Math.min(18, 3 + level), minCell: 52 }));
+
+  start.addEventListener('click', () => {
+    running = true;
     score = 0;
     level = 1;
-    speed = 2.2;
     scoreEl.textContent = '0';
-    levelEl.textContent = 'Level 1';
-    status.textContent = mode === 'flappy' ? 'Tap to fly' : 'Tap to run';
-    start.textContent = 'Start';
-    updateScene();
-  };
-
-  const updateScene = () => {
-    if (mode === 'flappy') {
-      player.style.top = `${y}px`;
-      obstacle.style.height = `${gap}px`;
-      obstacle.style.left = `${obstacleX}%`;
-      obstacleBottom.style.top = `${gap + 60}px`;
-      obstacleBottom.style.left = `${obstacleX}%`;
-    } else {
-      player.style.bottom = `${y}px`;
-      obstacle.style.left = `${obstacleX}%`;
-    }
-  };
-
-  const setDifficulty = () => {
-    level = Math.floor(score / 10) + 1;
-    speed = 2.2 + level * 0.2;
-    if (mode === 'flappy') gap = Math.max(48, 70 - level * 3);
-    scoreEl.textContent = String(score);
-    levelEl.textContent = `Level ${level}`;
-  };
-
-  const gameOver = () => {
-    clearInterval(interval);
-    interval = null;
-    status.textContent = 'Game over';
-    start.textContent = 'Restart';
-  };
-
-  const loop = () => {
-    if (mode === 'flappy') {
-      vy += 0.45;
-      y += vy;
-      obstacleX -= speed;
-      if (obstacleX < -20) { obstacleX = 100; score += 1; setDifficulty(); }
-      const topRect = obstacle.getBoundingClientRect();
-      const bottomRect = obstacleBottom.getBoundingClientRect();
-      const birdRect = player.getBoundingClientRect();
-      if (y < 0 || y > scene.clientHeight - 24 ||
-        (birdRect.right > topRect.left && birdRect.left < topRect.right && (birdRect.top < topRect.bottom || birdRect.bottom > bottomRect.top))) {
-        return gameOver();
-      }
-    } else {
-      vy -= 0.7;
-      y += vy;
-      obstacleX -= speed;
-      if (obstacleX < -20) { obstacleX = 100; score += 1; setDifficulty(); }
-      if (y < 0) y = 0;
-      if (y > 170) return gameOver();
-      const playerRect = player.getBoundingClientRect();
-      const obstacleRect = obstacle.getBoundingClientRect();
-      if (playerRect.right > obstacleRect.left && playerRect.left < obstacleRect.right && playerRect.bottom > obstacleRect.top) return gameOver();
-    }
-    updateScene();
-  };
-
-  reset();
-
-  start.onclick = () => {
-    if (interval) return;
-    reset();
-    status.textContent = 'In play';
-    start.textContent = 'Playing...';
-    interval = setInterval(loop, 20);
-  };
-
-  scene.onclick = () => {
-    if (!interval) return;
-    vy = mode === 'flappy' ? -7 : 11;
-  };
+    levelEl.textContent = '1';
+    status.textContent = 'Get ready...';
+    start.textContent = 'Stop';
+    createGrid();
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(highlightNext, 400);
+  });
 }
 let scEditIdx = null;
 function openShortcutModal(idx) {
