@@ -62,13 +62,13 @@ const idb = {
 const DEFAULT_WIDGETS = {
   greeting: { id: "greeting", enabled: true, x: 0,   y: 0,   w: 420, h: 140 },
   clock:    { id: "clock",    enabled: true, x: 440, y: 0,   w: 320, h: 140 },
-  weather:  { id: "weather",  enabled: false, x: 0,   y: 160, w: 220, h: 180 },
   pomodoro: { id: "pomodoro", enabled: true, x: 240, y: 160, w: 220, h: 180 },
   calendar: { id: "calendar", enabled: true, x: 480, y: 160, w: 240, h: 220 },
-  quote:    { id: "quote",    enabled: false, x: 0,  y: 360, w: 420, h: 130 },
-  todos:    { id: "todos",    enabled: false, x: 740, y: 0,   w: 280, h: 240 },
+  tasks:    { id: "tasks",    enabled: true, x: 0,   y: 160, w: 420, h: 260 },
+  notes:    { id: "notes",    enabled: true, x: 480, y: 380, w: 320, h: 220 },
+  quote:    { id: "quote",    enabled: false, x: 0,  y: 440, w: 420, h: 130 },
   links:    { id: "links",    enabled: false, x: 740, y: 260, w: 280, h: 200 },
-  games:    { id: "games",    enabled: true, x: 740, y: 260, w: 280, h: 200 },
+  games:    { id: "games",    enabled: true, x: 740, y: 0,   w: 320, h: 280 },
 };
 const DEFAULT_PROFILE = () => ({
   name: "Personal",
@@ -130,8 +130,6 @@ async function render() {
   renderWidgets();
   renderShortcuts();
   renderSettings();
-  renderTodos();
-  renderNotes();
   await loadWallpaper();
   startTimers();
   startWallpaperRotation();
@@ -194,20 +192,6 @@ function ensureWatermark() {
   try {
     Object.defineProperty(window, '__aurora_watermark_installed__', { value: true, configurable: false, writable: false });
   } catch (e) {}
-}
-
-async function render() {
-  applyTheme();
-  renderProfileSwitcher();
-  renderWidgets();
-  renderShortcuts();
-  renderSettings();
-  renderTodos();
-  renderNotes();
-  await loadWallpaper();
-  startTimers();
-  startWallpaperRotation();
-  postRenderInit();
 }
 
 // ---------- Theme / appearance ----------
@@ -469,15 +453,17 @@ function startWallpaperRotation() {
 }
 
 // ---------- Widgets ----------
+const HIDDEN_WIDGET_IDS = new Set(["weather", "todos"]);
 const WIDGET_LABELS = {
   greeting: "Greeting & Name",
   clock: "Clock",
-  weather: "Weather",
   pomodoro: "Pomodoro Timer",
   calendar: "Calendar",
+  tasks: "Tasks",
+  notes: "Notes",
   quote: "Quote of the Day",
-  todos: "Tasks (mini)",
   links: "Quick Links",
+  games: "Games",
 };
 
 function renderWidgets() {
@@ -485,7 +471,7 @@ function renderWidgets() {
   canvas.innerHTML = "";
   const widgets = cur().widgets;
   Object.values(widgets).forEach(w => {
-    if (!w.enabled) return;
+    if (!w.enabled || HIDDEN_WIDGET_IDS.has(w.id)) return;
     const el = document.createElement("div");
     el.className = "widget w-" + w.id;
     el.dataset.id = w.id;
@@ -501,7 +487,8 @@ function renderWidgets() {
     makeDraggable(el, w);
     makeResizable(el, handle, w);
   });
-  updateClock(); updateWeather(); renderCalendar(); renderQuote(); renderMiniTodos(); renderQuickLinks();
+  updateClock(); renderCalendar(); renderQuote(); renderTasksWidget(); renderNotesWidget(); renderQuickLinks();
+  initPomodoroBindings(); initGamesBindings();
 }
 
 function renderWidgetBody(id) {
@@ -509,11 +496,12 @@ function renderWidgetBody(id) {
     case "clock":   return `<div><span class="time" id="w-time">--:--</span><span class="ampm" id="w-ampm"></span></div><div class="date" id="w-date">—</div>`;
     case "greeting":return `<div class="greet" id="w-greet">Hello</div><div class="name" id="w-name">there</div>`;
     case "weather": return `<div class="widget-title">Weather</div><div class="ico-big" id="w-wico">⛅</div><div class="temp" id="w-temp">--°</div><div class="cond" id="w-cond">—</div><div class="loc" id="w-loc">Set city in settings</div>`;
-    case "pomodoro":return `<div class="widget-title">Focus</div><div class="ring" id="w-pomo">25:00</div><div style="margin-top:8px">Duration <input id="pomo-duration" type="number" min="1" max="180" style="width:80px;margin-left:8px;"/></div><div class="row"><button data-pomo="start">Start</button><button data-pomo="pause">Pause</button><button data-pomo="reset">Reset</button></div>`;
-    case "calendar":return `<div class="widget-title">Calendar</div><h4 id="w-cal-h"></h4><table id="w-cal-t"></table>`;
+    case "pomodoro":return `<div class="widget-title">Focus</div><div class="pomo-frame"><div class="pomo-ring"><div class="pomo-fill" id="w-pomo-fill"></div><span class="pomo-label" id="w-pomo">25:00</span></div><div class="pomo-meta"><label>Duration <input id="pomo-duration" type="number" min="1" max="180" style="width:80px;margin-left:8px;"/></label><div id="w-pomo-status" class="pomo-status">Ready to focus</div></div></div><div class="pomo-actions"><button data-pomo="start">Start</button><button data-pomo="pause">Pause</button><button data-pomo="reset">Reset</button></div>`;
+    case "calendar":return `<div class="widget-title">Calendar</div><div class="cal-header"><button id="w-cal-prev" class="icon-btn">◀</button><h4 id="w-cal-h"></h4><button id="w-cal-next" class="icon-btn">▶</button></div><table id="w-cal-t"></table>`;
+    case "tasks":   return `<div class="widget-title">Tasks</div><div class="mini-add"><input id="w-task-input" placeholder="New task..." /><button id="w-task-add">+</button></div><ul class="mini-list" id="w-task-list"></ul>`;
+    case "notes":   return `<div class="widget-title">Notes</div><textarea id="w-notes-text" class="widget-notes" placeholder="Write any notes..."></textarea>`;
     case "quote":   return `<div class="widget-title">Today</div><div class="q" id="w-q">—</div><div class="a" id="w-a"></div>`;
-    case "todos":   return `<div class="widget-title">Tasks</div><div class="mini-add"><input id="w-mini-todo-input" placeholder="New task..." /><button id="w-mini-todo-add">+</button></div><ul class="mini-list" id="w-mini-todo"></ul>`;
-    case "games":   return `<div class="widget-title">Games</div><div style="display:flex;flex-direction:column;gap:8px"><button id="game-tictactoe" class="btn-ghost">Tic-Tac-Toe</button><button id="game-clicker" class="btn-ghost">Clicker</button></div><div id="game-root" style="margin-top:8px"></div>`;
+    case "games":   return `<div class="widget-title">Games</div><div class="game-buttons"><button id="game-tictactoe" class="btn-ghost">Tic-Tac-Toe</button><button id="game-dino" class="btn-ghost">Dino Run</button><button id="game-flappy" class="btn-ghost">Flappy Bird</button></div><div id="game-root" class="game-root"></div>`;
     case "links":   return `<div class="widget-title">Quick Links</div><div class="grid" id="w-links"></div>`;
   }
   return "";
@@ -550,6 +538,7 @@ function makeDraggable(el, model) {
 }
 function makeResizable(el, handle, model) {
   handle.addEventListener("mousedown", e => {
+    if (!document.body.classList.contains("edit-mode")) return;
     e.preventDefault(); e.stopPropagation();
     const sx = e.clientX, sy = e.clientY, ow = model.w, oh = model.h;
     const move = ev => {
@@ -604,26 +593,23 @@ function renderCalendar() {
   const first = new Date(viewYear, viewMonth, 1).getDay();
   const days = new Date(viewYear, viewMonth + 1, 0).getDate();
   let html = "<thead><tr>" + ["S","M","T","W","T","F","S"].map(d => `<th>${d}</th>`).join("") + "</tr></thead><tbody><tr>";
+  let dayIndex = first;
   for (let i = 0; i < first; i++) html += "<td></td>";
   for (let d = 1; d <= days; d++) {
     const isToday = viewYear === now.getFullYear() && viewMonth === now.getMonth() && d === now.getDate();
     html += `<td class="${isToday ? "today" : ""}" data-cal-day="${d}">${d}</td>`;
-    if ((first + d) % 7 === 0) html += "</tr><tr>";
+    dayIndex += 1;
+    if (dayIndex % 7 === 0 && d !== days) html += "</tr><tr>";
   }
+  const trailing = (7 - (dayIndex % 7)) % 7;
+  for (let i = 0; i < trailing; i++) html += "<td></td>";
   html += "</tr></tbody>";
   wrap.innerHTML = html;
 
-  // calendar navigation
-  const calWrap = wrap.parentElement;
-  if (calWrap && !calWrap._navBound) {
-    calWrap._navBound = true;
-    const navPrev = document.createElement('button'); navPrev.textContent = '◀'; navPrev.className='icon-btn'; navPrev.style.marginRight='8px';
-    const navNext = document.createElement('button'); navNext.textContent = '▶'; navNext.className='icon-btn'; navNext.style.marginLeft='8px';
-    const navRow = document.createElement('div'); navRow.style.display='flex'; navRow.style.justifyContent='center'; navRow.style.marginTop='8px'; navRow.appendChild(navPrev); navRow.appendChild(navNext);
-    calWrap.appendChild(navRow);
-    navPrev.addEventListener('click', () => { const p = cur().calendar; p.viewMonth--; if (p.viewMonth<0){p.viewMonth=11;p.viewYear--;} save(); renderCalendar(); });
-    navNext.addEventListener('click', () => { const p = cur().calendar; p.viewMonth++; if (p.viewMonth>11){p.viewMonth=0;p.viewYear++;} save(); renderCalendar(); });
-  }
+  const prev = document.getElementById('w-cal-prev');
+  const next = document.getElementById('w-cal-next');
+  if (prev) prev.onclick = () => { const p = cur().calendar; p.viewMonth--; if (p.viewMonth < 0) { p.viewMonth = 11; p.viewYear--; } save(); renderCalendar(); };
+  if (next) next.onclick = () => { const p = cur().calendar; p.viewMonth++; if (p.viewMonth > 11) { p.viewMonth = 0; p.viewYear++; } save(); renderCalendar(); };
 }
 
 const QUOTES = [
@@ -676,13 +662,22 @@ async function updateWeather() {
 }
 
 // Pomodoro
-let pomo = { remaining: 25 * 60, running: false, interval: null };
+let pomo = { remaining: null, running: false, interval: null };
 function pomoTick() {
-  if (!pomo.running) return;
-  pomo.remaining--;
-  if (pomo.remaining <= 0) { pomo.running = false; clearInterval(pomo.interval); pomo.remaining = 0; }
+  if (pomo.running) {
+    pomo.remaining--;
+    if (pomo.remaining <= 0) { pomo.running = false; clearInterval(pomo.interval); pomo.remaining = 0; }
+  }
+  const minutes = Math.floor(pomo.remaining / 60);
+  const seconds = pomo.remaining % 60;
+  const time = `${String(minutes).padStart(2,"0")}:${String(seconds).padStart(2,"0")}`;
   const el = document.getElementById("w-pomo");
-  if (el) el.textContent = `${String(Math.floor(pomo.remaining / 60)).padStart(2,"0")}:${String(pomo.remaining % 60).padStart(2,"0")}`;
+  const fill = document.getElementById("w-pomo-fill");
+  const status = document.getElementById("w-pomo-status");
+  if (el) el.textContent = time;
+  const total = (cur().pomoDuration || 25) * 60;
+  if (fill) fill.style.transform = `rotate(${Math.min(360, 360 * (1 - pomo.remaining / total))}deg)`;
+  if (status) status.textContent = pomo.running ? "Focus mode" : pomo.remaining === 0 ? "Session complete" : "Ready to focus";
 }
 document.addEventListener("click", e => {
   const p = e.target.dataset.pomo;
@@ -698,7 +693,9 @@ document.addEventListener("click", e => {
     pomo.running = false; clearInterval(pomo.interval);
   } else if (p === "reset") {
     pomo.running = false; clearInterval(pomo.interval);
-    pomo.remaining = (cur().pomoDuration || 25) * 60; pomoTick(); save();
+    pomo.remaining = (cur().pomoDuration || 25) * 60;
+    pomoTick();
+    save();
   }
 });
 
@@ -711,43 +708,17 @@ function initPomodoroBindings() {
     dur.addEventListener("change", () => {
       const v = Math.max(1, Math.min(180, +dur.value || 25));
       cur().pomoDuration = v; save();
-      pomo.remaining = v * 60; pomoTick();
+      pomo.remaining = v * 60;
+      pomoTick();
     });
   }
-  // ensure display
-  pomo.remaining = (cur().pomoDuration || 25) * 60;
+  // preserve running timer state while updating display after render
+  if (pomo.remaining === null) {
+    pomo.remaining = (cur().pomoDuration || 25) * 60;
+  }
   pomoTick();
 }
 
-function renderMiniTodos() {
-  const el = document.getElementById("w-mini-todo");
-  if (!el) return;
-  const items = cur().todos.slice(0, 8);
-  el.innerHTML = items.length
-    ? items.map((t, i) => `<li class="${t.done?'done':''}"><input type="checkbox" data-mini-todo="${i}" ${t.done?'checked':''}/><span>${escapeHtml(t.text)}</span><button data-mini-del="${i}" title="Delete">×</button></li>`).join("")
-    : `<li style="color:var(--muted)">No tasks yet.</li>`;
-  el.querySelectorAll("[data-mini-todo]").forEach(cb => cb.addEventListener("change", e => {
-    const i = +e.target.dataset.miniTodo;
-    cur().todos[i].done = e.target.checked;
-    save(); renderMiniTodos(); renderTodos();
-  }));
-  el.querySelectorAll("[data-mini-del]").forEach(b => b.addEventListener("click", e => {
-    cur().todos.splice(+e.target.dataset.miniDel, 1); save(); renderMiniTodos(); renderTodos();
-  }));
-  const input = document.getElementById("w-mini-todo-input");
-  const add = document.getElementById("w-mini-todo-add");
-  if (input && !input._bound) {
-    input._bound = true;
-    const submit = () => {
-      const v = input.value.trim(); if (!v) return;
-      cur().todos.unshift({ text: v, done: false });
-      input.value = ""; save(); renderMiniTodos(); renderTodos();
-    };
-    input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
-    input.addEventListener("mousedown", e => e.stopPropagation());
-    add.addEventListener("click", submit);
-  }
-}
 function renderQuickLinks() {
   const el=document.getElementById("w-links");
   if(!el) return;
@@ -770,6 +741,141 @@ function startTimers() {
   updateClock();
 }
 
+function initDockReorder() {
+  const container = document.getElementById('shortcuts');
+  if (!container) return;
+  let placeholder = null;
+  let draggedIndex = null;
+  let draggingItem = null;
+
+  const setupDragHandlers = () => {
+    container.querySelectorAll('.dock-item').forEach((item, index) => {
+      item.dataset.shortcutIndex = index;
+      item.draggable = true;
+      item.removeEventListener('dragstart', handleDragStart);
+      item.removeEventListener('dragend', handleDragEnd);
+      item.addEventListener('dragstart', handleDragStart);
+      item.addEventListener('dragend', handleDragEnd);
+    });
+  };
+
+  const handleDragStart = (e) => {
+    draggedIndex = Number(e.target.closest('.dock-item').dataset.shortcutIndex);
+    draggingItem = e.target.closest('.dock-item');
+    draggingItem.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggedIndex);
+  };
+
+  const handleDragEnd = () => {
+    clearPlaceholder();
+  };
+
+  const clearPlaceholder = () => {
+    if (placeholder?.parentElement) placeholder.parentElement.removeChild(placeholder);
+    placeholder = null;
+    draggedIndex = null;
+    draggingItem = null;
+    container.querySelectorAll('.dock-item').forEach(x => x.classList.remove('dragging'));
+  };
+
+  const getDestinationIndex = () => {
+    if (!placeholder || !placeholder.parentElement) return cur().shortcuts.length;
+    const items = Array.from(container.querySelectorAll('.dock-item'));
+    let count = 0;
+    for (let item of items) {
+      if (item === placeholder) break;
+      if (item !== draggingItem) count++;
+    }
+    return count;
+  };
+
+  const updatePlaceholder = (targetItem) => {
+    if (!targetItem || targetItem === draggingItem) return;
+    const rect = targetItem.getBoundingClientRect();
+    if (!placeholder) {
+      placeholder = document.createElement('div');
+      placeholder.className = 'shortcut-placeholder';
+      placeholder.style.width = `${rect.width}px`;
+      placeholder.style.height = `${rect.height}px`;
+      placeholder.style.display = 'inline-block';
+    }
+    const insertBefore = event.clientX < rect.left + rect.width / 2;
+    if (insertBefore) {
+      targetItem.parentElement.insertBefore(placeholder, targetItem);
+    } else {
+      targetItem.parentElement.insertBefore(placeholder, targetItem.nextSibling);
+    }
+  };
+
+  setupDragHandlers();
+
+  container.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const target = e.target.closest('.dock-item');
+    if (target) updatePlaceholder(target);
+  });
+
+  container.addEventListener('drop', e => {
+    e.preventDefault();
+    if (draggedIndex === null) return;
+    const destIndex = getDestinationIndex();
+    if (destIndex !== draggedIndex) {
+      const item = cur().shortcuts.splice(draggedIndex, 1)[0];
+      const finalIndex = destIndex > draggedIndex ? destIndex - 1 : destIndex;
+      cur().shortcuts.splice(finalIndex, 0, item);
+      save();
+      renderShortcuts();
+    } else {
+      clearPlaceholder();
+    }
+  });
+
+  container.addEventListener('dragleave', e => {
+    if (e.target === container) clearPlaceholder();
+  });
+}
+
+function renderTasksWidget() {
+  const list = document.getElementById('w-task-list');
+  const input = document.getElementById('w-task-input');
+  const add = document.getElementById('w-task-add');
+  if (!list) return;
+  list.innerHTML = cur().todos.length
+    ? cur().todos.map((t, i) => `<li class="${t.done ? 'done' : ''}"><label><input type="checkbox" data-task-toggle="${i}" ${t.done ? 'checked' : ''}/> <span>${escapeHtml(t.text)}</span></label><button data-task-del="${i}">×</button></li>`).join('')
+    : `<li style="color:var(--muted)">No tasks yet.</li>`;
+  list.querySelectorAll('[data-task-toggle]').forEach(cb => cb.addEventListener('change', e => {
+    cur().todos[+e.target.dataset.taskToggle].done = e.target.checked;
+    save(); renderWidgets();
+  }));
+  list.querySelectorAll('[data-task-del]').forEach(btn => btn.addEventListener('click', e => {
+    cur().todos.splice(+btn.dataset.taskDel, 1);
+    save(); renderWidgets();
+  }));
+  if (add) {
+    add.onclick = () => {
+      if (!input || !input.value.trim()) return;
+      cur().todos.unshift({ text: input.value.trim(), done: false });
+      input.value = "";
+      save(); renderWidgets();
+    };
+  }
+  if (input) {
+    input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add?.click(); } };
+  }
+}
+
+function renderNotesWidget() {
+  const area = document.getElementById('w-notes-text');
+  if (!area) return;
+  area.value = cur().notes || '';
+  area.oninput = () => {
+    cur().notes = area.value;
+    save();
+  };
+}
+
 // after render run initializers for widgets
 function postRenderInit(){
   initPomodoroBindings();
@@ -784,6 +890,8 @@ function renderShortcuts() {
     const a = document.createElement("a");
     a.className = "dock-item";
     a.href = s.url; a.title = s.name;
+    a.draggable = true;
+    a.dataset.shortcutIndex = i;
     a.style.background = 'transparent';
     try {
       const u = new URL(s.url);
@@ -811,18 +919,20 @@ function renderShortcuts() {
     a.addEventListener("contextmenu", e => { e.preventDefault(); openShortcutModal(i); });
     el.appendChild(a);
   });
+  initDockReorder();
   renderQuickLinks();
 }
 
 // Games bindings
 function initGamesBindings(){
   const t = document.getElementById('game-tictactoe');
-  const c = document.getElementById('game-clicker');
+  const d = document.getElementById('game-dino');
+  const f = document.getElementById('game-flappy');
   const root = document.getElementById('game-root');
   if (!root) return;
-  root.innerHTML = '';
-  if (t) t.addEventListener('click', ()=> renderTicTacToe(root));
-  if (c) c.addEventListener('click', ()=> renderClicker(root));
+  if (t) t.onclick = () => renderTicTacToe(root);
+  if (d) d.onclick = () => renderDino(root);
+  if (f) f.onclick = () => renderFlappy(root);
 }
 
 function renderTicTacToe(root){
@@ -835,7 +945,121 @@ function renderTicTacToe(root){
   draw(); root.querySelector('#ttt-reset').addEventListener('click', ()=>{ for(let i=0;i<9;i++)state[i]=''; turn='X'; draw(); });
 }
 
-function renderClicker(root){ root.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:8px"><div id="click-count" style="font-size:24px">0</div><button id="click-btn" class="btn-primary">Click me</button></div>`; let count=0; root.querySelector('#click-btn').addEventListener('click', ()=>{ count++; root.querySelector('#click-count').textContent = count; }); }
+function renderDino(root) {
+  root.innerHTML = `<div class="dino-scene"><div class="dino-player" id="dino-player"></div><div class="dino-obstacle" id="dino-obstacle"></div><div class="dino-ground"></div><div class="game-ui"><div><span id="dino-score">0</span><span id="dino-level">Level 1</span></div><div id="dino-status">Tap to run</div><button id="dino-start" class="btn-ghost">Start</button></div></div>`;
+  initPremiumGame(root, 'dino');
+}
+
+function renderFlappy(root) {
+  root.innerHTML = `<div class="flappy-scene"><div class="flappy-bird" id="flappy-bird"></div><div class="flappy-pipe flappy-pipe-top" id="flappy-pipe-top"></div><div class="flappy-pipe flappy-pipe-bottom" id="flappy-pipe-bottom"></div><div class="flappy-cloud flappy-cloud-1"></div><div class="flappy-cloud flappy-cloud-2"></div><div class="game-ui"><div><span id="flappy-score">0</span><span id="flappy-level">Level 1</span></div><div id="flappy-status">Tap to fly</div><button id="flappy-start" class="btn-ghost">Start</button></div></div>`;
+  initPremiumGame(root, 'flappy');
+}
+
+function initPremiumGame(root, mode) {
+  const scene = root.querySelector(mode === 'flappy' ? '.flappy-scene' : '.dino-scene');
+  const player = root.querySelector(mode === 'flappy' ? '#flappy-bird' : '#dino-player');
+  const obstacle = root.querySelector(mode === 'flappy' ? '#flappy-pipe-top' : '#dino-obstacle');
+  const obstacleBottom = mode === 'flappy' ? root.querySelector('#flappy-pipe-bottom') : null;
+  const scoreEl = root.querySelector(mode === 'flappy' ? '#flappy-score' : '#dino-score');
+  const levelEl = root.querySelector(mode === 'flappy' ? '#flappy-level' : '#dino-level');
+  const status = root.querySelector(mode === 'flappy' ? '#flappy-status' : '#dino-status');
+  const start = root.querySelector(mode === 'flappy' ? '#flappy-start' : '#dino-start');
+  let interval = null;
+  let y = mode === 'flappy' ? 70 : 0;
+  let vy = 0;
+  let obstacleX = 100;
+  let gap = mode === 'flappy' ? 70 : 20;
+  let score = 0;
+  let level = 1;
+  let speed = 2.2;
+
+  const reset = () => {
+    clearInterval(interval);
+    interval = null;
+    y = mode === 'flappy' ? 70 : 0;
+    vy = 0;
+    obstacleX = 100;
+    gap = mode === 'flappy' ? 70 : 20;
+    score = 0;
+    level = 1;
+    speed = 2.2;
+    scoreEl.textContent = '0';
+    levelEl.textContent = 'Level 1';
+    status.textContent = mode === 'flappy' ? 'Tap to fly' : 'Tap to run';
+    start.textContent = 'Start';
+    updateScene();
+  };
+
+  const updateScene = () => {
+    if (mode === 'flappy') {
+      player.style.top = `${y}px`;
+      obstacle.style.height = `${gap}px`;
+      obstacle.style.left = `${obstacleX}%`;
+      obstacleBottom.style.top = `${gap + 60}px`;
+      obstacleBottom.style.left = `${obstacleX}%`;
+    } else {
+      player.style.bottom = `${y}px`;
+      obstacle.style.left = `${obstacleX}%`;
+    }
+  };
+
+  const setDifficulty = () => {
+    level = Math.floor(score / 10) + 1;
+    speed = 2.2 + level * 0.2;
+    if (mode === 'flappy') gap = Math.max(48, 70 - level * 3);
+    scoreEl.textContent = String(score);
+    levelEl.textContent = `Level ${level}`;
+  };
+
+  const gameOver = () => {
+    clearInterval(interval);
+    interval = null;
+    status.textContent = 'Game over';
+    start.textContent = 'Restart';
+  };
+
+  const loop = () => {
+    if (mode === 'flappy') {
+      vy += 0.45;
+      y += vy;
+      obstacleX -= speed;
+      if (obstacleX < -20) { obstacleX = 100; score += 1; setDifficulty(); }
+      const topRect = obstacle.getBoundingClientRect();
+      const bottomRect = obstacleBottom.getBoundingClientRect();
+      const birdRect = player.getBoundingClientRect();
+      if (y < 0 || y > scene.clientHeight - 24 ||
+        (birdRect.right > topRect.left && birdRect.left < topRect.right && (birdRect.top < topRect.bottom || birdRect.bottom > bottomRect.top))) {
+        return gameOver();
+      }
+    } else {
+      vy -= 0.7;
+      y += vy;
+      obstacleX -= speed;
+      if (obstacleX < -20) { obstacleX = 100; score += 1; setDifficulty(); }
+      if (y < 0) y = 0;
+      if (y > 170) return gameOver();
+      const playerRect = player.getBoundingClientRect();
+      const obstacleRect = obstacle.getBoundingClientRect();
+      if (playerRect.right > obstacleRect.left && playerRect.left < obstacleRect.right && playerRect.bottom > obstacleRect.top) return gameOver();
+    }
+    updateScene();
+  };
+
+  reset();
+
+  start.onclick = () => {
+    if (interval) return;
+    reset();
+    status.textContent = 'In play';
+    start.textContent = 'Playing...';
+    interval = setInterval(loop, 20);
+  };
+
+  scene.onclick = () => {
+    if (!interval) return;
+    vy = mode === 'flappy' ? -7 : 11;
+  };
+}
 let scEditIdx = null;
 function openShortcutModal(idx) {
   scEditIdx = idx;
@@ -850,27 +1074,6 @@ function openShortcutModal(idx) {
 }
 
 // ---------- Tasks & notes panels ----------
-function renderTodos() {
-  const el = document.getElementById("todo-list");
-  el.innerHTML = cur().todos.map((t, i) => `
-    <li class="${t.done?'done':''}">
-      <input type="checkbox" data-todo="${i}" ${t.done?'checked':''}/>
-      <span>${escapeHtml(t.text)}</span>
-      <button data-del-todo="${i}">×</button>
-    </li>`).join("");
-  el.querySelectorAll("[data-todo]").forEach(cb => cb.addEventListener("change", e => {
-    cur().todos[+e.target.dataset.todo].done = e.target.checked; save(); renderTodos(); renderMiniTodos();
-  }));
-  el.querySelectorAll("[data-del-todo]").forEach(b => b.addEventListener("click", e => {
-    cur().todos.splice(+e.target.dataset.delTodo, 1); save(); renderTodos(); renderMiniTodos();
-  }));
-}
-function renderNotes() {
-  const n = document.getElementById("notes-text");
-  n.value = cur().notes || "";
-  n.oninput = () => { cur().notes = n.value; save(); };
-}
-
 // ---------- Settings panel ----------
 function renderSettings() {
   const c = cur();
@@ -905,9 +1108,11 @@ function renderSettings() {
 
   // widget toggles
   const wt = document.getElementById("widget-toggles");
-  wt.innerHTML = Object.values(cur().widgets).map(w => `
-    <label><input type="checkbox" data-widget-toggle="${w.id}" ${w.enabled?'checked':''}/> ${WIDGET_LABELS[w.id]||w.id}</label>
-  `).join("");
+  wt.innerHTML = Object.values(cur().widgets)
+    .filter(w => !HIDDEN_WIDGET_IDS.has(w.id))
+    .map(w => `
+      <label><input type="checkbox" data-widget-toggle="${w.id}" ${w.enabled?'checked':''}/> ${WIDGET_LABELS[w.id]||w.id}</label>
+    `).join("");
   wt.querySelectorAll("[data-widget-toggle]").forEach(cb => cb.addEventListener("change", e => {
     cur().widgets[e.target.dataset.widgetToggle].enabled = e.target.checked;
     save(); renderWidgets();
@@ -1078,30 +1283,6 @@ function bindGlobalEvents() {
     document.getElementById("edit-mode-btn").classList.toggle("active");
   });
 
-  // make topbar buttons draggable and persist order
-  const topbarLeft = document.getElementById('topbar-left');
-  if (topbarLeft) {
-    let dragEl = null, startX = 0;
-    topbarLeft.querySelectorAll('[data-topbtn]').forEach(btn => {
-      btn.draggable = true;
-      btn.addEventListener('dragstart', e => { dragEl = btn; startX = e.clientX; btn.style.opacity = 0.6; });
-      btn.addEventListener('dragend', () => { if (dragEl) dragEl.style.opacity=''; dragEl = null; saveTopbarOrder(); });
-      btn.addEventListener('dragover', e => { e.preventDefault(); });
-      btn.addEventListener('drop', e => {
-        e.preventDefault(); if (!dragEl || dragEl === btn) return;
-        topbarLeft.insertBefore(dragEl, btn.nextSibling);
-      });
-    });
-    function saveTopbarOrder(){ const order = Array.from(topbarLeft.querySelectorAll('[data-topbtn]')).map(b=>b.dataset.topbtn); cur().topbarOrder = order; save(); }
-    // restore order from settings
-    const order = cur().topbarOrder || [];
-    if (order.length) {
-      order.forEach(id => {
-        const b = topbarLeft.querySelector(`[data-topbtn="${id}"]`);
-        if (b) topbarLeft.appendChild(b);
-      });
-    }
-  }
 
   // profile dropdown
   document.getElementById("profile-btn").addEventListener("click", e => {
@@ -1226,16 +1407,6 @@ function bindGlobalEvents() {
   document.getElementById("apply-css").addEventListener("click", () => {
     cur().customCss = document.getElementById("set-custom-css").value; save(); applyTheme();
   });
-
-  // todo input
-  const addTodo = () => {
-    const i = document.getElementById("todo-input");
-    if (!i.value.trim()) return;
-    cur().todos.unshift({ text: i.value.trim(), done: false });
-    i.value = ""; save(); renderTodos(); renderMiniTodos();
-  };
-  document.getElementById("todo-add-btn").addEventListener("click", addTodo);
-  document.getElementById("todo-input").addEventListener("keydown", e => { if (e.key === "Enter") addTodo(); });
 
   // shortcut modal
   document.getElementById("add-shortcut").addEventListener("click", () => openShortcutModal(null));

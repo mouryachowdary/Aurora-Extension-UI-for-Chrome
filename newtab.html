@@ -16,14 +16,7 @@
 
     <!-- Top bar -->
     <div class="topbar">
-      <div class="topbar-left" id="topbar-left">
-        <button class="pill-btn" data-topbtn="todo" data-toggle="todo-panel" title="Tasks">
-          <span class="ico ico-check">✓</span><span>Tasks</span>
-        </button>
-        <button class="pill-btn" data-topbtn="notes" data-toggle="notes-panel" title="Notes">
-          <span class="ico ico-note">📝</span><span>Notes</span>
-        </button>
-      </div>
+      <div class="topbar-left" id="topbar-left"></div>
       <div class="topbar-center">
         <div id="profile-switcher" class="profile-switcher">
           <button id="profile-btn" class="pill-btn ghost">
@@ -57,20 +50,6 @@
     </div>
 
     <!-- Panels -->
-    <aside id="notes-panel" class="panel hidden">
-      <header><h2>Notes</h2><button data-close="notes-panel" class="close">×</button></header>
-      <textarea id="notes-text" placeholder="Write anything... (markdown supported)"></textarea>
-    </aside>
-
-    <aside id="todo-panel" class="panel hidden">
-      <header><h2>Tasks</h2><button data-close="todo-panel" class="close">×</button></header>
-      <div class="todo-add">
-        <input id="todo-input" placeholder="New task..." />
-        <button id="todo-add-btn" class="btn-primary">Add</button>
-      </div>
-      <ul id="todo-list"></ul>
-    </aside>
-
     <aside id="settings-panel" class="panel wide hidden">
       <header><h2>Settings</h2><button data-close="settings-panel" class="close">×</button></header>
 
