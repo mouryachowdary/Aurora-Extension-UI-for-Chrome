@@ -112,10 +112,33 @@ let STATE = {
 const cur = () => STATE.profiles[STATE.activeProfile].data;
 const save = () => store.set("aurora", STATE);
 
+function normalizeWidgets(data) {
+  if (!data.widgets) data.widgets = JSON.parse(JSON.stringify(DEFAULT_WIDGETS));
+
+  // Migrate legacy todos widget into tasks widget, if present.
+  if (data.widgets.todos) {
+    if (!data.widgets.tasks) {
+      data.widgets.tasks = { ...JSON.parse(JSON.stringify(DEFAULT_WIDGETS.tasks)), ...data.widgets.todos, id: 'tasks' };
+    }
+    delete data.widgets.todos;
+  }
+
+  // Ensure all default widget keys exist.
+  Object.entries(DEFAULT_WIDGETS).forEach(([id, def]) => {
+    if (!data.widgets[id]) {
+      data.widgets[id] = JSON.parse(JSON.stringify(def));
+    }
+  });
+}
+
 // ---------- Init ----------
 async function init() {
   const loaded = await store.get("aurora");
-  if (loaded && loaded.profiles) STATE = loaded;
+  if (loaded && loaded.profiles) {
+    STATE = loaded;
+    Object.values(STATE.profiles).forEach(profile => normalizeWidgets(profile.data));
+    save();
+  }
   await render();
   ensureWatermark();
   bindGlobalEvents();
@@ -842,38 +865,86 @@ function renderTasksWidget() {
   const input = document.getElementById('w-task-input');
   const add = document.getElementById('w-task-add');
   if (!list) return;
-  list.innerHTML = cur().todos.length
-    ? cur().todos.map((t, i) => `<li class="${t.done ? 'done' : ''}"><label><input type="checkbox" data-task-toggle="${i}" ${t.done ? 'checked' : ''}/> <span>${escapeHtml(t.text)}</span></label><button data-task-del="${i}">×</button></li>`).join('')
-    : `<li style="color:var(--muted)">No tasks yet.</li>`;
+  
+  const renderList = () => {
+    list.innerHTML = cur().todos.length
+      ? cur().todos.map((t, i) => `
+        <li class="task-item ${t.done ? 'task-done' : ''}" data-task="${i}">
+          <label class="task-label">
+            <input type="checkbox" class="task-checkbox" data-task-toggle="${i}" ${t.done ? 'checked' : ''}/>
+            <span class="task-text">${escapeHtml(t.text)}</span>
+          </label>
+          <button class="task-del-btn" data-task-del="${i}" title="Delete">✕</button>
+        </li>`).join('')
+      : `<li class="task-empty">✨ No tasks yet. Add one to get started!</li>`;
+  };
+  
+  renderList();
+  
   list.querySelectorAll('[data-task-toggle]').forEach(cb => cb.addEventListener('change', e => {
-    cur().todos[+e.target.dataset.taskToggle].done = e.target.checked;
-    save(); renderWidgets();
+    const idx = +e.target.dataset.taskToggle;
+    cur().todos[idx].done = e.target.checked;
+    const item = list.querySelector(`[data-task="${idx}"]`);
+    if (item) item.classList.toggle('task-done', e.target.checked);
+    save();
   }));
+  
   list.querySelectorAll('[data-task-del]').forEach(btn => btn.addEventListener('click', e => {
-    cur().todos.splice(+btn.dataset.taskDel, 1);
-    save(); renderWidgets();
+    e.preventDefault();
+    const idx = +btn.dataset.taskDel;
+    cur().todos.splice(idx, 1);
+    save();
+    renderList();
+    renderTasksWidget();
   }));
+  
   if (add) {
-    add.onclick = () => {
+    add.addEventListener('click', () => {
       if (!input || !input.value.trim()) return;
       cur().todos.unshift({ text: input.value.trim(), done: false });
       input.value = "";
-      save(); renderWidgets();
-    };
+      input.focus();
+      save();
+      renderList();
+    });
   }
+  
   if (input) {
-    input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add?.click(); } };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); add?.click(); }
+      if (e.key === 'Escape') { input.value = ""; input.blur(); }
+    });
   }
 }
 
 function renderNotesWidget() {
   const area = document.getElementById('w-notes-text');
   if (!area) return;
+  
   area.value = cur().notes || '';
-  area.oninput = () => {
+  
+  // Auto-save on input with debounce
+  let saveTimeout;
+  area.addEventListener('input', () => {
+    clearTimeout(saveTimeout);
+    cur().notes = area.value;
+    area.classList.add('notes-editing');
+    saveTimeout = setTimeout(() => {
+      save();
+      area.classList.remove('notes-editing');
+    }, 800);
+  });
+  
+  // Focus/blur effects
+  area.addEventListener('focus', () => {
+    area.classList.add('notes-focused');
+  });
+  
+  area.addEventListener('blur', () => {
+    area.classList.remove('notes-focused');
     cur().notes = area.value;
     save();
-  };
+  });
 }
 
 // after render run initializers for widgets

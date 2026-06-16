@@ -456,33 +456,98 @@ body.edit-mode .canvas::before {
   border: none; cursor: pointer; color: white; font-size: 18px; font-weight: 700;
   background: linear-gradient(135deg, var(--accent), color-mix(in oklab, var(--accent) 60%, #ec4899));
 }
+/* Tasks widget premium styling */
+.w-tasks .mini-add {
+  display: flex; gap: 6px; margin-bottom: 12px;
+}
+.w-tasks .mini-add input {
+  flex: 1; padding: 10px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+  color: var(--text); font-size: 13px; outline: none;
+  transition: background .2s, border-color .2s;
+}
+.w-tasks .mini-add input:focus {
+  background: rgba(255,255,255,0.1); border-color: var(--accent);
+}
+.w-tasks .mini-add input::placeholder {
+  color: var(--muted);
+}
+.w-tasks .mini-add button {
+  padding: 10px 14px; background: var(--accent); border: none;
+  border-radius: 10px; color: white; font-weight: 600; cursor: pointer;
+  transition: transform .15s, opacity .15s;
+}
+.w-tasks .mini-add button:hover { transform: scale(1.05); opacity: 0.9; }
+.w-tasks .mini-add button:active { transform: scale(0.95); }
+
 .w-tasks .mini-list {
   flex: 1; overflow-y: auto; list-style: none; padding: 0; margin: 0;
+  display: flex; flex-direction: column; gap: 6px;
 }
-.w-tasks .mini-list li {
-  display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08);
+.w-tasks .mini-list li.task-empty {
+  color: var(--muted); text-align: center; padding: 20px 10px;
+  font-size: 13px; opacity: 0.7;
 }
-.w-tasks .mini-list li.done span {
-  text-decoration: line-through; opacity: 0.55;
+.w-tasks .mini-list li.task-item {
+  display: flex; gap: 10px; align-items: center; padding: 10px;
+  background: rgba(255,255,255,0.04); border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: all .2s;
 }
-.w-tasks .mini-list li button[data-mini-del] {
+.w-tasks .mini-list li.task-item:hover {
+  background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12);
+}
+.w-tasks .mini-list li.task-item.task-done {
+  opacity: 0.6;
+}
+.w-tasks .mini-list .task-label {
+  flex: 1; display: flex; gap: 8px; align-items: center;
+  cursor: pointer;
+}
+.w-tasks .mini-list .task-checkbox {
+  accent-color: var(--accent); cursor: pointer; width: 16px; height: 16px;
+}
+.w-tasks .mini-list .task-text {
+  font-size: 13px; color: var(--text);
+}
+.w-tasks .mini-list li.task-done .task-text {
+  text-decoration: line-through; color: var(--muted);
+}
+.w-tasks .mini-list .task-del-btn {
   background: transparent; border: none; color: var(--muted);
-  cursor: pointer; font-size: 16px; margin-left: auto; opacity: 0; transition: opacity .15s;
+  cursor: pointer; font-size: 16px; padding: 4px 6px;
+  opacity: 0; transition: opacity .2s, color .2s;
+  margin-left: auto;
 }
-.w-tasks .mini-list li:hover button[data-mini-del] { opacity: 1; }
+.w-tasks .mini-list li.task-item:hover .task-del-btn {
+  opacity: 1;
+}
+.w-tasks .mini-list .task-del-btn:hover {
+  color: #ff6b6b;
+}
 
-/* Notes widget */
+/* Notes widget premium styling */
 .w-notes .widget-notes {
-  width: 100%; min-height: 220px; resize: none;
-  padding: 12px; border-radius: 16px;
-  background: rgba(255,255,255,0.08);
+  width: 100%; min-height: 180px; resize: none;
+  padding: 12px; border-radius: 14px;
+  background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.1);
-  color: var(--text); font-family: inherit; font-size: 13px;
-  outline: none; transition: border-color .2s, background .2s;
+  color: var(--text); font-family: inherit; font-size: 13px; line-height: 1.5;
+  outline: none; transition: all .2s;
+}
+.w-notes .widget-notes::placeholder {
+  color: var(--muted); opacity: 0.6;
 }
 .w-notes .widget-notes:focus {
+  background: rgba(255,255,255,0.1);
   border-color: var(--accent);
-  background: rgba(255,255,255,0.12);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.15);
+}
+.w-notes .widget-notes.notes-focused {
+  background: rgba(255,255,255,0.1);
+}
+.w-notes .widget-notes.notes-editing {
+  border-color: var(--accent);
 }
 
 /* Premium settings polish */
