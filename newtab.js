@@ -115,6 +115,10 @@ const save = () => store.set("aurora", STATE);
 function normalizeWidgets(data) {
   if (!data.widgets) data.widgets = JSON.parse(JSON.stringify(DEFAULT_WIDGETS));
 
+  if (data.widgets.animeCompanion) {
+    delete data.widgets.animeCompanion;
+  }
+
   // Migrate legacy todos widget into tasks widget, if present.
   if (data.tasks && !data.todos) {
     data.tasks = Array.isArray(data.tasks) ? data.tasks : [];
@@ -142,12 +146,35 @@ function normalizeWidgets(data) {
   });
 }
 
-// ---------- Init ----------
+function normalizeWallpaperSettings(data) {
+  const wp = data.wp || {};
+  data.wp = {
+    type: wp.type || "gradient",
+    src: wp.src || "",
+    tint: wp.tint ?? 25,
+    brightness: wp.brightness ?? 100,
+    mediaBlur: wp.mediaBlur ?? 0,
+    opacity: wp.opacity ?? 100,
+    speed: wp.speed ?? 100,
+    volume: wp.volume ?? 0,
+    muted: wp.muted ?? true,
+    rotate: wp.rotate ?? false,
+    rotateMins: wp.rotateMins ?? 30,
+    collectionFilter: wp.collectionFilter || "All",
+    collection: Array.isArray(wp.collection) ? wp.collection : [],
+    activeIdx: Number.isInteger(wp.activeIdx) ? wp.activeIdx : -1,
+  };
+}
+
+
 async function init() {
   const loaded = await store.get("aurora");
   if (loaded && loaded.profiles) {
     STATE = loaded;
-    Object.values(STATE.profiles).forEach(profile => normalizeWidgets(profile.data));
+    Object.values(STATE.profiles).forEach(profile => {
+      normalizeWidgets(profile.data);
+      normalizeWallpaperSettings(profile.data);
+    });
     save();
   }
   await render();
@@ -780,96 +807,74 @@ function startTimers() {
 function initDockReorder() {
   const container = document.getElementById('shortcuts');
   if (!container) return;
-  let placeholder = null;
-  let draggedIndex = null;
   let draggingItem = null;
+  let didMove = false;
+  let suppressNextClick = false;
 
-  const setupDragHandlers = () => {
-    container.querySelectorAll('.dock-item').forEach((item, index) => {
-      item.dataset.shortcutIndex = index;
-      item.draggable = true;
-      item.removeEventListener('dragstart', handleDragStart);
-      item.removeEventListener('dragend', handleDragEnd);
-      item.addEventListener('dragstart', handleDragStart);
-      item.addEventListener('dragend', handleDragEnd);
+  const clearDragState = () => {
+    draggingItem = null;
+    didMove = false;
+    container.querySelectorAll('.dock-item').forEach(x => {
+      x.classList.remove('dragging');
+      x.style.pointerEvents = '';
     });
   };
 
-  const handleDragStart = (e) => {
-    draggedIndex = Number(e.target.closest('.dock-item').dataset.shortcutIndex);
-    draggingItem = e.target.closest('.dock-item');
-    draggingItem.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', draggedIndex);
+  const getHoverItem = (clientX, clientY) => {
+    const stack = document.elementsFromPoint(clientX, clientY);
+    return stack.find(el => el?.classList?.contains('dock-item') && el !== draggingItem) || null;
   };
 
-  const handleDragEnd = () => {
-    clearPlaceholder();
-  };
-
-  const clearPlaceholder = () => {
-    if (placeholder?.parentElement) placeholder.parentElement.removeChild(placeholder);
-    placeholder = null;
-    draggedIndex = null;
-    draggingItem = null;
-    container.querySelectorAll('.dock-item').forEach(x => x.classList.remove('dragging'));
-  };
-
-  const getDestinationIndex = () => {
-    if (!placeholder || !placeholder.parentElement) return cur().shortcuts.length;
-    const items = Array.from(container.querySelectorAll('.dock-item'));
-    let count = 0;
-    for (let item of items) {
-      if (item === placeholder) break;
-      if (item !== draggingItem) count++;
-    }
-    return count;
-  };
-
-  const updatePlaceholder = (targetItem) => {
+  const updateOrder = (clientX, clientY) => {
+    const targetItem = getHoverItem(clientX, clientY);
     if (!targetItem || targetItem === draggingItem) return;
     const rect = targetItem.getBoundingClientRect();
-    if (!placeholder) {
-      placeholder = document.createElement('div');
-      placeholder.className = 'shortcut-placeholder';
-      placeholder.style.width = `${rect.width}px`;
-      placeholder.style.height = `${rect.height}px`;
-      placeholder.style.display = 'inline-block';
-    }
-    const insertBefore = event.clientX < rect.left + rect.width / 2;
-    if (insertBefore) {
-      targetItem.parentElement.insertBefore(placeholder, targetItem);
-    } else {
-      targetItem.parentElement.insertBefore(placeholder, targetItem.nextSibling);
+    const insertBefore = clientX < rect.left + rect.width / 2;
+    const nextNode = insertBefore ? targetItem : targetItem.nextSibling;
+    if (draggingItem && draggingItem.parentElement === container) {
+      container.insertBefore(draggingItem, nextNode);
     }
   };
 
-  setupDragHandlers();
-
-  container.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+  container.addEventListener('pointerdown', e => {
     const target = e.target.closest('.dock-item');
-    if (target) updatePlaceholder(target);
+    if (!target || target.classList.contains('add') || e.button !== 0) return;
+    draggingItem = target;
+    didMove = false;
+    draggingItem.classList.add('dragging');
+    draggingItem.style.pointerEvents = 'none';
+    draggingItem.dataset.dragStartX = String(e.clientX);
+    draggingItem.dataset.dragStartY = String(e.clientY);
   });
 
-  container.addEventListener('drop', e => {
-    e.preventDefault();
-    if (draggedIndex === null) return;
-    const destIndex = getDestinationIndex();
-    if (destIndex !== draggedIndex) {
-      const item = cur().shortcuts.splice(draggedIndex, 1)[0];
-      const finalIndex = destIndex > draggedIndex ? destIndex - 1 : destIndex;
-      cur().shortcuts.splice(finalIndex, 0, item);
-      save();
-      renderShortcuts();
-    } else {
-      clearPlaceholder();
+  document.addEventListener('pointermove', e => {
+    if (!draggingItem) return;
+    const startX = Number(draggingItem.dataset.dragStartX || e.clientX);
+    const startY = Number(draggingItem.dataset.dragStartY || e.clientY);
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) < 4) return;
+    didMove = true;
+    updateOrder(e.clientX, e.clientY);
+  });
+
+  document.addEventListener('pointerup', () => {
+    if (!draggingItem) return;
+    if (didMove) {
+      const ordered = Array.from(container.querySelectorAll('.dock-item')).map(item => cur().shortcuts[Number(item.dataset.shortcutIndex)]).filter(Boolean);
+      if (ordered.length === cur().shortcuts.length) {
+        cur().shortcuts = ordered;
+        save();
+        renderShortcuts();
+      }
+      suppressNextClick = true;
     }
+    clearDragState();
   });
 
-  container.addEventListener('dragleave', e => {
-    if (e.target === container) clearPlaceholder();
+  container.addEventListener('click', e => {
+    if (!suppressNextClick) return;
+    suppressNextClick = false;
+    e.preventDefault();
+    e.stopPropagation();
   });
 }
 
@@ -1133,23 +1138,23 @@ function initGamesBindings(){
 
 function renderColorPicker(root) {
   const colors = [
-    { name: 'Crimson', value: '#dc143c' },
-    { name: 'Forest Green', value: '#228b22' },
-    { name: 'Royal Blue', value: '#4169e1' },
-    { name: 'Gold', value: '#ffd700' },
-    { name: 'Coral', value: '#ff7f50' },
-    { name: 'Slate Gray', value: '#708090' },
-    { name: 'Teal', value: '#008080' },
-    { name: 'Magenta', value: '#ff00ff' },
-    { name: 'Orange', value: '#ff8c00' },
-    { name: 'Indigo', value: '#4b0082' },
-    { name: 'Sea Green', value: '#2e8b57' },
-    { name: 'Turquoise', value: '#40e0d0' }
+    { name: 'Red', value: '#ef4444' },
+    { name: 'Blue', value: '#3b82f6' },
+    { name: 'Green', value: '#22c55e' },
+    { name: 'Yellow', value: '#facc15' },
+    { name: 'Orange', value: '#fb923c' },
+    { name: 'Purple', value: '#a855f7' },
+    { name: 'Pink', value: '#ec4899' },
+    { name: 'Brown', value: '#92400e' },
+    { name: 'Black', value: '#111827' },
+    { name: 'Gray', value: '#6b7280' },
+    { name: 'White', value: '#f8fafc' },
+    { name: 'Cyan', value: '#06b6d4' }
   ];
 
   root.innerHTML = `
     <div class="game-meta-wrap">
-      <div class="game-stat"><span>Target color</span><strong id="color-target"></strong></div>
+      <div class="game-stat game-target-stat"><span>Target color</span><strong id="color-target"><span class="target-chip"></span><span class="target-word"></span></strong></div>
       <div class="game-stat"><span>Score</span><strong id="color-score">0</strong></div>
     </div>
     <div id="color-grid" class="color-grid"></div>
@@ -1175,9 +1180,12 @@ function renderColorPicker(root) {
   const renderRound = () => {
     const pool = shuffle(colors).slice(0, 6);
     current = pool[Math.floor(Math.random() * pool.length)];
-    targetName.textContent = current.name;
+    const decoy = colors.filter(c => c.value !== current.value)[Math.floor(Math.random() * (colors.length - 1))];
+    targetName.querySelector('.target-word').textContent = decoy.name;
+    targetName.querySelector('.target-chip').style.background = current.value;
+    targetName.style.color = decoy.value;
     scoreEl.textContent = score;
-    feedback.textContent = 'Select the swatch that matches the displayed color name.';
+    feedback.textContent = 'Match the target color name to the swatch, even when the labels try to mislead you.';
     grid.innerHTML = pool.map(opt => {
       const label = opt.value === current.value ? opt.name : pickWrongLabel(opt);
       return `<button class="color-card" data-correct="${opt.value === current.value ? 1 : 0}" style="--swatch:${opt.value};"><span class="color-chip"></span><span class="color-label">${escapeHtml(label)}</span></button>`;
@@ -1661,6 +1669,7 @@ function bindGlobalEvents() {
 
   // export/import
   document.getElementById("export-btn").addEventListener("click", () => {
+    normalizeWallpaperSettings(cur());
     const blob = new Blob([JSON.stringify(STATE, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = "aurora-tab-settings.json"; a.click();
@@ -1669,7 +1678,18 @@ function bindGlobalEvents() {
   document.getElementById("import-file").addEventListener("change", async e => {
     const f = e.target.files[0]; if (!f) return;
     const text = await f.text();
-    try { STATE = JSON.parse(text); await save(); render(); } catch { alert("Invalid file"); }
+    try {
+      STATE = JSON.parse(text);
+      if (!STATE.profiles || !STATE.activeProfile || !STATE.profiles[STATE.activeProfile]) throw new Error("Invalid settings file");
+      Object.values(STATE.profiles).forEach(profile => {
+        normalizeWidgets(profile.data);
+        normalizeWallpaperSettings(profile.data);
+      });
+      await save();
+      render();
+    } catch {
+      alert("Invalid file");
+    }
   });
 
   document.getElementById("reset-all").addEventListener("click", () => {
