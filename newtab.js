@@ -804,9 +804,14 @@ function startTimers() {
   updateClock();
 }
 
+let dockReorderController = null;
+
 function initDockReorder() {
   const container = document.getElementById('shortcuts');
   if (!container) return;
+  if (dockReorderController) dockReorderController.abort();
+  dockReorderController = new AbortController();
+  const { signal } = dockReorderController;
   let draggingItem = null;
   let didMove = false;
   let suppressNextClick = false;
@@ -837,6 +842,7 @@ function initDockReorder() {
   };
 
   container.addEventListener('pointerdown', e => {
+    if (!document.body.classList.contains('edit-mode')) return;
     const target = e.target.closest('.dock-item');
     if (!target || target.classList.contains('add') || e.button !== 0) return;
     draggingItem = target;
@@ -845,7 +851,7 @@ function initDockReorder() {
     draggingItem.style.pointerEvents = 'none';
     draggingItem.dataset.dragStartX = String(e.clientX);
     draggingItem.dataset.dragStartY = String(e.clientY);
-  });
+  }, { signal });
 
   document.addEventListener('pointermove', e => {
     if (!draggingItem) return;
@@ -854,7 +860,7 @@ function initDockReorder() {
     if (Math.hypot(e.clientX - startX, e.clientY - startY) < 4) return;
     didMove = true;
     updateOrder(e.clientX, e.clientY);
-  });
+  }, { signal });
 
   document.addEventListener('pointerup', () => {
     if (!draggingItem) return;
@@ -868,14 +874,14 @@ function initDockReorder() {
       suppressNextClick = true;
     }
     clearDragState();
-  });
+  }, { signal });
 
   container.addEventListener('click', e => {
     if (!suppressNextClick) return;
     suppressNextClick = false;
     e.preventDefault();
     e.stopPropagation();
-  });
+  }, { signal });
 }
 
 function renderTasksWidget() {
@@ -979,7 +985,7 @@ function renderShortcuts() {
     const a = document.createElement("a");
     a.className = "dock-item";
     a.href = s.url; a.title = s.name;
-    a.draggable = true;
+    a.draggable = false;
     a.dataset.shortcutIndex = i;
     a.style.background = 'transparent';
     try {
@@ -1003,7 +1009,19 @@ function renderShortcuts() {
       a.appendChild(fav);
     } catch { a.textContent = (s.name[0]||"?").toUpperCase(); }
     a.addEventListener("click", e => {
-      if (e.shiftKey || e.button === 2) { e.preventDefault(); openShortcutModal(i); }
+      if (document.body.classList.contains("edit-mode")) {
+        e.preventDefault();
+        return;
+      }
+      if (e.shiftKey || e.button === 2) {
+        e.preventDefault();
+        openShortcutModal(i);
+        return;
+      }
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.altKey) return;
+      // Force navigation explicitly so ancestor listeners cannot cancel the open.
+      e.preventDefault();
+      window.location.assign(a.href);
     });
     a.addEventListener("contextmenu", e => { e.preventDefault(); openShortcutModal(i); });
     el.appendChild(a);
